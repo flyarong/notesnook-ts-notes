@@ -17,30 +17,30 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-import {
-  useStore as useUserStore,
-  store as userstore
-} from "../../stores/user-store";
+import { useStore as useUserStore } from "../../stores/user-store";
 import { SettingsGroup } from "./types";
-import {
-  showAttachmentsDialog,
-  showClearSessionsConfirmation,
-  showEmailChangeDialog,
-  showLoadingDialog,
-  showLogoutConfirmation,
-  showPasswordDialog,
-  showRecoveryKeyDialog
-} from "../../common/dialog-controller";
+import { showPasswordDialog } from "../../dialogs/password-dialog";
 import { db } from "../../common/db";
 import { showToast } from "../../utils/toast";
 import { UserProfile } from "./components/user-profile";
 import { verifyAccount } from "../../common";
+import { EmailChangeDialog } from "../email-change-dialog";
+import {
+  showClearSessionsConfirmation,
+  showLogoutConfirmation
+} from "../confirm";
+import { TaskManager } from "../../common/task-manager";
+import { AttachmentsDialog } from "../attachments-dialog";
+import { RecoveryKeyDialog } from "../recovery-key-dialog";
 
 export const ProfileSettings: SettingsGroup[] = [
   {
     key: "user-profile",
     section: "profile",
     header: UserProfile,
+    onStateChange(listener) {
+      return useUserStore.subscribe((s) => s.isLoggedIn, listener);
+    },
     settings: [
       {
         key: "email",
@@ -53,7 +53,7 @@ export const ProfileSettings: SettingsGroup[] = [
             type: "button",
             title: "Change email",
             variant: "secondary",
-            action: showEmailChangeDialog
+            action: () => EmailChangeDialog.show({})
           }
         ]
       },
@@ -61,13 +61,12 @@ export const ProfileSettings: SettingsGroup[] = [
         key: "manage-attachments",
         title: "Attachments",
         description: "Manage all your attachments in one place.",
-        isHidden: () => !useUserStore.getState().isLoggedIn,
         components: [
           {
             type: "button",
             title: "Open manager",
             variant: "secondary",
-            action: showAttachmentsDialog
+            action: () => AttachmentsDialog.show({})
           }
         ]
       },
@@ -77,14 +76,14 @@ export const ProfileSettings: SettingsGroup[] = [
         description:
           "In case you lose your password, this data recovery key is the only way to recovery your data.",
         keywords: ["data recovery key", "lose your password", "backup"],
-        isHidden: () => !userstore.get().isLoggedIn,
+        isHidden: () => !useUserStore.getState().isLoggedIn,
         components: [
           {
             type: "button",
             title: "Backup your recovery key",
             variant: "secondary",
             action: async () => {
-              if (await verifyAccount()) await showRecoveryKeyDialog();
+              if (await verifyAccount()) await RecoveryKeyDialog.show({});
             }
           }
         ]
@@ -95,16 +94,26 @@ export const ProfileSettings: SettingsGroup[] = [
         description:
           "Permanently delete your account clearing all data including your notes, notebooks, and attachments.",
         keywords: ["delete account", "clear data"],
-        isHidden: () => !userstore.get().isLoggedIn,
+        isHidden: () => !useUserStore.getState().isLoggedIn,
         components: [
           {
             type: "button",
             variant: "error",
             title: "Delete account",
-            action: async () =>
-              showPasswordDialog("delete_account", async ({ password }) => {
-                await db.user?.deleteUser(password);
-                return true;
+            action: () =>
+              showPasswordDialog({
+                title: "Delete your account",
+                message: ` All your data will be permanently deleted with **no way of recovery**. Proceed with caution.`,
+                inputs: {
+                  password: {
+                    label: "Password",
+                    autoComplete: "current-password"
+                  }
+                },
+                validate: async ({ password }) => {
+                  await db.user.deleteUser(password);
+                  return true;
+                }
               })
           }
         ]
@@ -115,12 +124,16 @@ export const ProfileSettings: SettingsGroup[] = [
     key: "user-sessions",
     section: "profile",
     header: "Sessions",
-    isHidden: () => !userstore.get().isLoggedIn,
+    onStateChange(listener) {
+      return useUserStore.subscribe((s) => s.isLoggedIn, listener);
+    },
+    isHidden: () => !useUserStore.getState().isLoggedIn,
     settings: [
       {
         key: "logout",
         title: "Logout",
-        description: "Logging out will clear all data on this device.",
+        description:
+          "Logging out will clear all data stored on THIS DEVICE. Make sure you have synced all your changes before logging out.",
         keywords: [],
         components: [
           {
@@ -129,10 +142,11 @@ export const ProfileSettings: SettingsGroup[] = [
             title: "Logout",
             action: async () => {
               if (await showLogoutConfirmation()) {
-                await showLoadingDialog({
+                await TaskManager.startTask({
+                  type: "modal",
                   title: "You are being logged out",
                   subtitle: "Please wait...",
-                  action: () => db.user?.logout(true)
+                  action: () => db.user.logout(true)
                 });
                 showToast("success", "You have been logged out.");
               }
@@ -153,7 +167,7 @@ export const ProfileSettings: SettingsGroup[] = [
             action: async () => {
               if (!(await showClearSessionsConfirmation())) return;
 
-              await db.user?.clearSessions();
+              await db.user.clearSessions();
               showToast(
                 "success",
                 "You have been logged out from all other devices."

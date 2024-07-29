@@ -41,19 +41,20 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
-import { db } from "../../common/database";
+import { DatabaseLogger, db } from "../../common/database";
 import SheetProvider from "../../components/sheet-provider";
 import { Button } from "../../components/ui/button";
 import Input from "../../components/ui/input";
 import Heading from "../../components/ui/typography/heading";
 import Paragraph from "../../components/ui/typography/paragraph";
-import { ToastEvent, presentSheet } from "../../services/event-manager";
+import { ToastManager, presentSheet } from "../../services/event-manager";
 import { useThemeStore } from "../../stores/use-theme-store";
 import { SIZE } from "../../utils/size";
 import { getElevationStyle } from "../../utils/elevation";
 import { MenuItemsList } from "../../utils/menu-items";
 import { IconButton } from "../../components/ui/icon-button";
-import { PressableButton } from "../../components/ui/pressable";
+import { Pressable } from "../../components/ui/pressable";
+import { getColorLinearShade } from "../../utils/colors";
 
 const THEME_SERVER_URL = "https://themes-api.notesnook.com";
 //@ts-ignore
@@ -260,8 +261,8 @@ function ThemeSelector() {
               {darkTheme.id === item.id || lightTheme.id === item.id ? (
                 <IconButton
                   name="check"
-                  type="gray"
-                  customStyle={{
+                  type="plain"
+                  style={{
                     borderRadius: 100,
                     paddingHorizontal: 6,
                     alignSelf: "flex-end",
@@ -275,7 +276,7 @@ function ThemeSelector() {
 
               <Button
                 title={item.colorScheme === "dark" ? "Dark" : "Light"}
-                type="grayAccent"
+                type="secondaryAccented"
                 height={25}
                 buttonType={{
                   color: item.colorScheme === "dark" ? "black" : "#f0f0f060",
@@ -284,7 +285,11 @@ function ThemeSelector() {
                 style={{
                   borderRadius: 100,
                   paddingHorizontal: 12,
-                  alignSelf: "flex-end"
+                  alignSelf: "flex-end",
+                  borderColor:
+                    item.colorScheme === "dark"
+                      ? getColorLinearShade("#000000", 0.1, true)
+                      : getColorLinearShade("#f0f0f0", 0.1, true)
                 }}
                 fontSize={SIZE.xxs}
               />
@@ -321,11 +326,10 @@ function ThemeSelector() {
           return page.themes;
         })
         .flat()
-        .filter(
-          (theme) =>
-            (!searchQuery || searchQuery === "") &&
-            darkTheme.id !== theme.id &&
-            lightTheme.id !== theme.id
+        .filter((theme) =>
+          searchQuery && searchQuery !== ""
+            ? true
+            : darkTheme.id !== theme.id && lightTheme.id !== theme.id
         ) || []
     );
   }
@@ -361,7 +365,9 @@ function ThemeSelector() {
               <Button
                 height={30}
                 style={{ borderRadius: 100, minWidth: 60 }}
-                type={colorScheme === "" || !colorScheme ? "accent" : "grayBg"}
+                type={
+                  colorScheme === "" || !colorScheme ? "accent" : "secondary"
+                }
                 title="All"
                 fontSize={SIZE.xs}
                 onPress={() => {
@@ -371,7 +377,7 @@ function ThemeSelector() {
               <Button
                 style={{ borderRadius: 100, minWidth: 60 }}
                 height={30}
-                type={colorScheme === "dark" ? "accent" : "grayBg"}
+                type={colorScheme === "dark" ? "accent" : "secondary"}
                 title="Dark"
                 fontSize={SIZE.xs}
                 onPress={() => {
@@ -382,7 +388,7 @@ function ThemeSelector() {
                 style={{ borderRadius: 100, minWidth: 60 }}
                 height={30}
                 fontSize={SIZE.xs}
-                type={colorScheme === "light" ? "accent" : "grayBg"}
+                type={colorScheme === "light" ? "accent" : "secondary"}
                 title="Light"
                 onPress={() => {
                   setColorScheme("light");
@@ -394,7 +400,7 @@ function ThemeSelector() {
               title="Load from file"
               style={{ borderRadius: 100, minWidth: 60 }}
               height={30}
-              type={"grayAccent"}
+              type={"secondaryAccented"}
               icon="folder"
               fontSize={SIZE.xs}
               onPress={() => {
@@ -405,7 +411,7 @@ function ThemeSelector() {
                     const json = await response.json();
                     const result = validateTheme(json);
                     if (result.error) {
-                      ToastEvent.error(new Error(result.error));
+                      ToastManager.error(new Error(result.error));
                       return;
                     }
                     select(json, true);
@@ -533,13 +539,13 @@ const ThemeSetter = ({
       theme.colorScheme === "dark"
         ? useThemeStore.getState().setDarkTheme(fullTheme)
         : useThemeStore.getState().setLightTheme(fullTheme);
-      ToastEvent.show({
+      ToastManager.show({
         heading: `${theme.name} applied successfully`,
         type: "success",
         context: "global"
       });
     } catch (e) {
-      console.log("Error", e);
+      DatabaseLogger.error(e);
     }
 
     setTimeout(() => {
@@ -741,10 +747,10 @@ const ThemeSetter = ({
         </View>
 
         {darkTheme.id === theme.id || lightTheme.id === theme.id ? (
-          <PressableButton
+          <Pressable
             onPress={applyTheme}
-            type="grayAccent"
-            customStyle={{
+            type="secondaryAccented"
+            style={{
               paddingVertical: 12
             }}
           >
@@ -754,7 +760,7 @@ const ThemeSetter = ({
                 : "Applied as light theme"}
             </Heading>
             <Paragraph size={SIZE.xs}>(Tap to apply again)</Paragraph>
-          </PressableButton>
+          </Pressable>
         ) : (
           <Button
             style={{
@@ -767,7 +773,7 @@ const ThemeSetter = ({
                 ? "Set as dark theme"
                 : "Set as light theme"
             }
-            type="grayAccent"
+            type="secondaryAccented"
           />
         )}
       </View>

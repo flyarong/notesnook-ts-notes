@@ -15,6 +15,8 @@
     <uses-permission android:name="android.permission.DOWNLOAD_WITHOUT_NOTIFICATION" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
     <queries>
@@ -52,7 +54,6 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:requestLegacyExternalStorage="true"
-        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/BootTheme"
         android:largeHeap="true"
         android:supportsRtl="false"
@@ -141,6 +142,17 @@
 
         <service android:name="com.streetwriters.notesnook.BootTaskService" />
 
+        <service
+            android:name=".NotesnookTileService"
+            android:icon="@drawable/add_note"
+            android:label="New note"
+            android:exported="true"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE"/>
+            </intent-filter>
+        </service>
+
         <provider
         android:name="androidx.core.content.FileProvider"
         android:authorities="${applicationId}.provider"
@@ -161,12 +173,14 @@
                 android:resource="@xml/file_viewer_provider_paths" />
         </provider>
 
-<!--        <receiver android:exported="true" android:name=".BootRecieverService" >-->
-<!--            <intent-filter>-->
-<!--                <action android:name="android.intent.action.BOOT_COMPLETED" />-->
-<!--                <action android:name="android.intent.action.QUICKBOOT_POWERON" />-->
-<!--            </intent-filter>-->
-<!--        </receiver>-->
+       <receiver android:exported="true" android:name=".BootRecieverService" >
+           <intent-filter>
+               <action android:name="android.intent.action.BOOT_COMPLETED" />
+               <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+           </intent-filter>
+      </receiver>
+
+
         
 
     </application>

@@ -21,7 +21,8 @@ import { Flex, FlexProps } from "@theme-ui/components";
 import {
   getDefaultPresets,
   STATIC_TOOLBAR_GROUPS,
-  MOBILE_STATIC_TOOLBAR_GROUPS
+  MOBILE_STATIC_TOOLBAR_GROUPS,
+  READONLY_MOBILE_STATIC_TOOLBAR_GROUPS
 } from "./tool-definitions";
 import { useEffect, useMemo } from "react";
 import { Editor } from "../types";
@@ -35,7 +36,7 @@ import {
 import { ToolbarDefinition } from "./types";
 
 type ToolbarProps = FlexProps & {
-  editor: Editor | null;
+  editor: Editor;
   location: ToolbarLocation;
   tools?: ToolbarDefinition;
   defaultFontFamily: string;
@@ -57,9 +58,13 @@ export function Toolbar(props: ToolbarProps) {
   const toolbarTools = useMemo(
     () =>
       isMobile
-        ? [...MOBILE_STATIC_TOOLBAR_GROUPS, ...tools]
-        : [...STATIC_TOOLBAR_GROUPS, ...tools],
-    [tools, isMobile]
+        ? editor.isEditable
+          ? [...MOBILE_STATIC_TOOLBAR_GROUPS, ...tools]
+          : READONLY_MOBILE_STATIC_TOOLBAR_GROUPS
+        : editor.isEditable
+        ? [...STATIC_TOOLBAR_GROUPS, ...tools]
+        : [],
+    [tools, editor.isEditable, isMobile]
   );
 
   const setToolbarLocation = useToolbarStore(
@@ -82,17 +87,16 @@ export function Toolbar(props: ToolbarProps) {
     setDefaultFontSize
   ]);
 
-  if (!editor) return null;
   return (
     <>
       <Flex
         className={["editor-toolbar", className].join(" ")}
         sx={{
-          ...sx,
           flexWrap: isMobile ? "nowrap" : "wrap",
           overflowX: isMobile ? "auto" : "hidden",
           bg: "background",
-          borderRadius: isMobile ? "0px" : "default"
+          borderRadius: isMobile ? "0px" : "default",
+          ...sx
         }}
         {...flexProps}
       >

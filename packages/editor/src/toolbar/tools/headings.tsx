@@ -23,6 +23,7 @@ import { Dropdown } from "../components/dropdown";
 import { MenuItem } from "@notesnook/ui";
 import { ToolbarLocation, useToolbarLocation } from "../stores/toolbar-store";
 import { useMemo } from "react";
+import { CodeBlock } from "../../extensions/code-block";
 
 const defaultLevels = [1, 2, 3, 4, 5, 6] as const;
 
@@ -48,6 +49,7 @@ export function Headings(props: ToolProps) {
       }
       items={items}
       menuWidth={130}
+      disabled={editor.isActive(CodeBlock.name)}
     />
   );
 }
@@ -64,7 +66,7 @@ function toMenuItems(
     isChecked: level === currentHeadingLevel,
     modifier: `Mod-Alt-${level}`,
     onClick: () =>
-      editor.current
+      editor
         ?.chain()
         .focus()
         .updateAttributes("textStyle", { fontSize: null, fontStyle: null })
@@ -77,7 +79,7 @@ function toMenuItems(
     title: "Paragraph",
     isChecked: !currentHeadingLevel,
     modifier: `Mod-Alt-0`,
-    onClick: () => editor.current?.chain().focus().setParagraph().run()
+    onClick: () => editor.chain().focus().setParagraph().run()
   };
   return [paragraph, ...menuItems];
 }

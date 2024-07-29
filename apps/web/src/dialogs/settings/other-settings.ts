@@ -23,9 +23,9 @@ import { writeText } from "clipboard-polyfill";
 import { showToast } from "../../utils/toast";
 import { checkForUpdate, downloadUpdate } from "../../utils/updater";
 import { isMacStoreApp } from "../../utils/platform";
-import { showIssueDialog } from "../../common/dialog-controller";
 import { clearLogs, downloadLogs } from "../../utils/logger";
 import { useAutoUpdateStore } from "../../hooks/use-auto-updater";
+import { IssueDialog } from "../issue-dialog";
 
 export const AboutSettings: SettingsGroup[] = [
   {
@@ -71,6 +71,25 @@ export const AboutSettings: SettingsGroup[] = [
             }
           ];
         }
+      },
+      {
+        key: "source-code",
+        title: "Source code",
+        description:
+          "All the source code for Notesnook is available & open for everyone on GitHub.",
+        components: [
+          {
+            type: "button",
+            action: () => {
+              window.open(
+                "https://github.com/streetwriters/notesnook",
+                "_blank"
+              );
+            },
+            title: "View source code",
+            variant: "secondary"
+          }
+        ]
       },
       {
         key: "roadmap",
@@ -216,6 +235,23 @@ export const LegalSettings: SettingsGroup[] = [
             variant: "secondary"
           }
         ]
+      },
+      {
+        key: "license",
+        title: "License",
+        description: "GNU GENERAL PUBLIC LICENSE Version 3",
+        components: [
+          {
+            type: "button",
+            action: () =>
+              void window.open(
+                "https://github.com/streetwriters/notesnook/blob/master/LICENSE",
+                "_blank"
+              ),
+            title: "Read License",
+            variant: "secondary"
+          }
+        ]
       }
     ]
   }
@@ -235,7 +271,7 @@ export const SupportSettings: SettingsGroup[] = [
         components: [
           {
             type: "button",
-            action: showIssueDialog,
+            action: () => IssueDialog.show({}),
             title: "Send bug report",
             variant: "secondary"
           }

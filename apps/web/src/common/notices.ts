@@ -23,12 +23,12 @@ import { db } from "./db";
 import { store as appStore } from "../stores/app-store";
 import { Backup, User, Email, Warn, Icon } from "../components/icons";
 import dayjs from "dayjs";
-import { showBuyDialog, showRecoveryKeyDialog } from "./dialog-controller";
 import { hardNavigate, hashNavigate } from "../navigation";
-
 import { isUserPremium } from "../hooks/use-is-user-premium";
 import { showToast } from "../utils/toast";
 import { TaskScheduler } from "../utils/task-scheduler";
+import { BuyDialog } from "../dialogs/buy-dialog";
+import { RecoveryKeyDialog } from "../dialogs/recovery-key-dialog";
 
 export type NoticeType = "autoBackupsOff" | "login" | "email" | "recoverykey";
 
@@ -76,9 +76,9 @@ export async function shouldAddBackupNotice() {
   const backupInterval = Config.get("backupReminderOffset", 0);
   if (!backupInterval) return false;
 
-  const lastBackupTime = await db.backup?.lastBackupTime();
+  const lastBackupTime = await db.backup.lastBackupTime();
   if (!lastBackupTime) {
-    await db.backup?.updateBackupTime();
+    await db.backup.updateBackupTime();
     return false;
   }
 
@@ -96,12 +96,12 @@ export async function shouldAddRecoveryKeyBackupNotice() {
 }
 
 export async function shouldAddLoginNotice() {
-  const user = await db.user?.getUser();
+  const user = await db.user.getUser();
   if (!user) return true;
 }
 
 export async function shouldAddConfirmEmailNotice() {
-  const user = await db.user?.getUser();
+  const user = await db.user.getUser();
   return !user?.isEmailConfirmed;
 }
 
@@ -119,7 +119,7 @@ export const NoticesData: Record<NoticeType, NoticeData> = {
     key: "autoBackupsOff",
     title: "Automatic backups disabled",
     subtitle: "Please upgrade to Pro to enable automatic backups.",
-    action: () => showBuyDialog(),
+    action: () => BuyDialog.show({}),
     dismissable: true,
     icon: Backup
   },
@@ -143,7 +143,7 @@ export const NoticesData: Record<NoticeType, NoticeData> = {
     subtitle: "Keep your recovery key safe",
     dismissable: true,
     action: async () => {
-      if (await verifyAccount()) await showRecoveryKeyDialog();
+      if (await verifyAccount()) await RecoveryKeyDialog.show({});
     },
     icon: Warn
   }
@@ -177,7 +177,7 @@ function isIgnored(key: keyof typeof NoticesData) {
 let openedToast: { hide: () => void } | null = null;
 async function saveBackup() {
   if (IS_DESKTOP_APP) {
-    await createBackup();
+    await createBackup({ noVerify: true });
   } else if (isUserPremium() && !IS_TESTING) {
     if (openedToast !== null) return;
     openedToast = showToast(
@@ -187,7 +187,7 @@ async function saveBackup() {
         {
           text: "Later",
           onClick: async () => {
-            await db.backup?.updateBackupTime();
+            await db.backup.updateBackupTime();
             openedToast?.hide();
             openedToast = null;
           },

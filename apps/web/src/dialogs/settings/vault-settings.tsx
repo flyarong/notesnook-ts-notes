@@ -24,7 +24,7 @@ import Vault from "../../common/vault";
 import { showToast } from "../../utils/toast";
 import { db } from "../../common/db";
 import { isUserPremium } from "../../hooks/use-is-user-premium";
-import { showBuyDialog } from "../../common/dialog-controller";
+import { BuyDialog } from "../buy-dialog/buy-dialog";
 
 export const VaultSettings: SettingsGroup[] = [
   {
@@ -43,7 +43,7 @@ export const VaultSettings: SettingsGroup[] = [
             type: "button",
             title: "Create",
             action: () => {
-              if (!isUserPremium()) showBuyDialog();
+              if (!isUserPremium()) BuyDialog.show({});
               else
                 Vault.createVault().then((res) => {
                   useAppStore.getState().setIsVaultCreated(res);
@@ -58,6 +58,8 @@ export const VaultSettings: SettingsGroup[] = [
         title: "Change vault password",
         description: "Set a new password for your vault",
         isHidden: () => !useAppStore.getState().isVaultCreated,
+        onStateChange: (listener) =>
+          useAppStore.subscribe((s) => s.isVaultCreated, listener),
         components: [
           {
             type: "button",
@@ -72,6 +74,8 @@ export const VaultSettings: SettingsGroup[] = [
         title: "Clear vault",
         description: "Unlock all locked notes and clear vault.",
         isHidden: () => !useAppStore.getState().isVaultCreated,
+        onStateChange: (listener) =>
+          useAppStore.subscribe((s) => s.isVaultCreated, listener),
         components: [
           {
             type: "button",
@@ -91,12 +95,14 @@ export const VaultSettings: SettingsGroup[] = [
         title: "Delete vault",
         description: "Delete vault including all locked notes.",
         isHidden: () => !useAppStore.getState().isVaultCreated,
+        onStateChange: (listener) =>
+          useAppStore.subscribe((s) => s.isVaultCreated, listener),
         components: [
           {
             type: "button",
             title: "Delete",
             action: async () => {
-              if ((await Vault.deleteVault()) && !(await db.vault?.exists())) {
+              if ((await Vault.deleteVault()) && !(await db.vault.exists())) {
                 useAppStore.getState().setIsVaultCreated(false);
                 await useAppStore.getState().refresh();
                 showToast("success", "Vault deleted.");

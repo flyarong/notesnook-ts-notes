@@ -22,15 +22,15 @@ import RNFetchBlob from "react-native-blob-util";
 import FileViewer from "react-native-file-viewer";
 import * as ScopedStorage from "react-native-scoped-storage";
 import Share from "react-native-share";
+import { zip } from "react-native-zip-archive";
 import { DatabaseLogger, db } from "../common/database";
 import storage from "../common/database/storage";
+import { cacheDir, copyFileAsync } from "../common/filesystem/utils";
 import { presentDialog } from "../components/dialog/functions";
 import { eCloseSheet } from "../utils/events";
 import { sleep } from "../utils/time";
-import { ToastEvent, eSendEvent, presentSheet } from "./event-manager";
+import { ToastManager, eSendEvent, presentSheet } from "./event-manager";
 import SettingsService from "./settings";
-import { cacheDir, copyFileAsync } from "../common/filesystem/utils";
-import { zip } from "react-native-zip-archive";
 
 const MS_DAY = 86400000;
 const MS_WEEK = MS_DAY * 7;
@@ -136,7 +136,7 @@ async function presentBackupCompleteSheet(backupFilePath) {
           });
         },
         actionText: "Never ask again",
-        type: "grayBg"
+        type: "secondary"
       }
     ]
   });
@@ -148,10 +148,18 @@ async function updateNextBackupTime() {
     lastBackupDate: Date.now()
   });
 }
-
-async function run(progress, context) {
+/**
+ * @param {boolean=} progress
+ * @param {string=} context
+ * @returns {Promise<{path?: string, error?: Error, report?: boolean}}>
+ */
+async function run(progress = false, context) {
   let androidBackupDirectory = await checkBackupDirExists(false, context);
-  if (!androidBackupDirectory) return;
+  if (!androidBackupDirectory)
+    return {
+      error: new Error("Backup directory not selected"),
+      report: false
+    };
 
   if (progress) {
     presentSheet({
@@ -163,7 +171,6 @@ async function run(progress, context) {
   }
 
   let path;
-  let backupFilePath;
   let backupFileName = "notesnook_backup_" + Date.now();
 
   if (Platform.OS === "ios") {
@@ -176,15 +183,18 @@ async function run(progress, context) {
       ? `${path}/${backupFileName}.nnbackupz`
       : `${cacheDir}/${backupFileName}.nnbackupz`;
 
-  if (await RNFetchBlob.fs.exists(zipSourceFolder))
-    await RNFetchBlob.fs.unlink(zipSourceFolder);
+  try {
+    if (await RNFetchBlob.fs.exists(zipSourceFolder))
+      await RNFetchBlob.fs.unlink(zipSourceFolder);
+  } catch (e) {}
 
   await RNFetchBlob.fs.mkdir(zipSourceFolder);
 
   try {
+    const user = await db.user.getUser();
     for await (const file of db.backup.export(
       "mobile",
-      SettingsService.get().encryptedBackup
+      SettingsService.get().encryptedBackup && user
     )) {
       console.log("Writing backup chunk of size...", file?.data?.length);
       await RNFetchBlob.fs.writeFile(
@@ -196,8 +206,6 @@ async function run(progress, context) {
 
     await zip(zipSourceFolder, zipOutputFile);
 
-    console.log("Final zip:", await RNFetchBlob.fs.stat(zipOutputFile));
-
     if (Platform.OS === "android") {
       // Move the zip to user selected directory.
       const file = await ScopedStorage.createFile(
@@ -205,7 +213,9 @@ async function run(progress, context) {
         `${backupFileName}.nnbackupz`,
         "application/nnbackupz"
       );
+      console.log("Copying zip file...");
       await copyFileAsync(`file://${zipOutputFile}`, file.uri);
+      console.log("Copyied zip file...");
       path = file.uri;
     } else {
       path = zipOutputFile;
@@ -213,29 +223,48 @@ async function run(progress, context) {
     RNFetchBlob.fs.unlink(zipSourceFolder).catch(console.log);
     updateNextBackupTime();
 
-    let showBackupCompleteSheet = SettingsService.get().showBackupCompleteSheet;
+    let showBackupCompleteSheet =
+      progress && SettingsService.get().showBackupCompleteSheet;
 
-    if (context) return path;
+    if (context) {
+      return {
+        path: path
+      };
+    }
+
     await sleep(300);
+
     if (showBackupCompleteSheet) {
-      presentBackupCompleteSheet(backupFilePath);
+      presentBackupCompleteSheet(path);
     } else {
       progress && eSendEvent(eCloseSheet);
     }
 
-    ToastEvent.show({
+    ToastManager.show({
       heading: "Backup successful",
       message: "Your backup is stored in Notesnook folder on your phone.",
       type: "success",
       context: "global"
     });
 
-    return path;
+    return {
+      path: path
+    };
   } catch (e) {
+    ToastManager.error(e, "Backup failed", context || "global");
+
+    if (e?.message?.includes("android.net.Uri") && androidBackupDirectory) {
+      SettingsService.setProperty("backupDirectoryAndroid", null);
+      return run(progress, context);
+    }
+
+    DatabaseLogger.error(e);
     await sleep(300);
-    eSendEvent(eCloseSheet);
-    ToastEvent.error(e, "Backup failed!");
-    return null;
+    progress && eSendEvent(eCloseSheet);
+    return {
+      error: e,
+      report: true
+    };
   }
 }
 

@@ -19,288 +19,335 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import React, {
   useEffect,
-  useCallback,
   useState,
   useRef,
   PropsWithChildren,
-  Suspense
+  Suspense,
+  useLayoutEffect
 } from "react";
 import ReactDOM from "react-dom";
 import { Box, Button, Flex, Progress, Text } from "@theme-ui/components";
 import Properties from "../properties";
-import { useStore, store as editorstore } from "../../stores/editor-store";
+import {
+  useEditorStore,
+  SaveState,
+  DefaultEditorSession,
+  DeletedEditorSession,
+  NewEditorSession,
+  ReadonlyEditorSession,
+  EditorSession,
+  DocumentPreview,
+  LockedEditorSession
+} from "../../stores/editor-store";
 import {
   useStore as useAppStore,
   store as appstore
 } from "../../stores/app-store";
-import Toolbar from "./toolbar";
 import { AppEventManager, AppEvents } from "../../common/app-events";
 import { FlexScrollContainer } from "../scroll-container";
-import Tiptap from "./tiptap";
+import Tiptap, { OnChangeHandler } from "./tiptap";
 import Header from "./header";
 import { Attachment } from "../icons";
-import { useEditorInstance } from "./context";
-import { attachFile, AttachmentProgress, insertAttachment } from "./picker";
+import { attachFiles, AttachmentProgress, insertAttachments } from "./picker";
+import { useEditorManager } from "./manager";
 import { saveAttachment, downloadAttachment } from "../../common/attachments";
 import { EV, EVENTS } from "@notesnook/core/dist/common";
 import { db } from "../../common/db";
-import useMobile from "../../hooks/use-mobile";
 import Titlebox from "./title-box";
-import useTablet from "../../hooks/use-tablet";
 import Config from "../../utils/config";
-import { AnimatedFlex } from "../animated";
-import { EditorLoader } from "../loaders/editor-loader";
 import { ScopedThemeProvider } from "../theme-provider";
 import { Lightbox } from "../lightbox";
-import { Allotment } from "allotment";
 import { showToast } from "../../utils/toast";
-import { getFormattedDate } from "@notesnook/common";
+import { Item, MaybeDeletedItem, isDeleted } from "@notesnook/core/dist/types";
+import { debounce, debounceWithId } from "@notesnook/common";
+import { Freeze } from "react-freeze";
+import { UnlockView } from "../unlock";
+import DiffViewer from "../diff-viewer";
+import TableOfContents from "./table-of-contents";
+import { scrollIntoViewById } from "@notesnook/editor";
+import { IEditor } from "./types";
+import { EditorActionBar } from "./action-bar";
+import { logger } from "../../utils/logger";
+import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
+import { NoteLinkingDialog } from "../../dialogs/note-linking-dialog";
 
 const PDFPreview = React.lazy(() => import("../pdf-preview"));
 
-type PreviewSession = {
-  content: { data: string; type: string };
-  dateCreated: number;
-  dateEdited: number;
-};
-
-type DocumentPreview = {
-  url?: string;
-  hash: string;
-};
-
-function onEditorChange(
-  noteId: string | undefined,
-  sessionId: number,
+async function saveContent(
+  noteId: string,
+  ignoreEdit: boolean,
   content: string
 ) {
-  if (!content) return;
-
-  editorstore.get().saveSessionContent(noteId, sessionId, {
-    type: "tiptap",
-    data: content
+  logger.debug("saving content", {
+    noteId,
+    ignoreEdit,
+    length: content.length
+  });
+  await Promise.race([
+    useEditorStore.getState().saveSessionContent(noteId, ignoreEdit, {
+      type: "tiptap",
+      data: content
+    }),
+    new Promise((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              "Saving this note is taking too long. Copy your changes and restart the app to prevent data loss. If the problem persists, please report it to us at support@streetwriters.co."
+            )
+          ),
+        30 * 1000
+      )
+    )
+  ]).catch((e) => {
+    const { hide } = showToast(
+      "error",
+      (e as Error).message,
+      [
+        {
+          text: "Dismiss",
+          onClick: () => hide()
+        }
+      ],
+      0
+    );
   });
 }
+const deferredSave = debounceWithId(saveContent, 100);
 
-export default function EditorManager({
-  noteId,
-  nonce
-}: {
-  noteId: string | number;
-  nonce?: string;
-}) {
-  const isNewSession = !!nonce && noteId === 0;
-  const isOldSession = !nonce && !!noteId;
-
-  // the only state that changes. Everything else is
-  // stored in refs. Update this value to trigger an
-  // update.
-  const [timestamp, setTimestamp] = useState<number>(0);
-
-  const lastSavedTime = useRef<number>(0);
-  const [docPreview, setDocPreview] = useState<DocumentPreview>();
-
-  const previewSession = useRef<PreviewSession>();
+export default function TabsView() {
+  const sessions = useEditorStore((store) => store.sessions);
+  const documentPreview = useEditorStore((store) => store.documentPreview);
+  const activeSessionId = useEditorStore((store) => store.activeSessionId);
+  const arePropertiesVisible = useEditorStore(
+    (store) => store.arePropertiesVisible
+  );
+  const isTOCVisible = useEditorStore((store) => store.isTOCVisible);
   const [dropRef, overlayRef] = useDragOverlay();
-  const editorInstance = useEditorInstance();
 
-  const arePropertiesVisible = useStore((store) => store.arePropertiesVisible);
-  const toggleProperties = useStore((store) => store.toggleProperties);
-  const isReadonly = useStore((store) => store.session.readonly);
+  return (
+    <>
+      {!hasNativeTitlebar ? (
+        <EditorActionBarPortal />
+      ) : (
+        <Flex sx={{ px: 1 }}>
+          <EditorActionBar />
+        </Flex>
+      )}
+
+      <ScopedThemeProvider
+        scope="editor"
+        ref={dropRef}
+        sx={{
+          bg: "background",
+          pt: 1,
+          flex: 1,
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column"
+        }}
+      >
+        <PanelGroup direction="horizontal" autoSaveId={"editor-panels"}>
+          <Panel id="editor-panel" className="editor-pane" order={1}>
+            {sessions.map((session) => (
+              <Freeze key={session.id} freeze={session.id !== activeSessionId}>
+                {session.type === "locked" ? (
+                  <UnlockNoteView session={session} />
+                ) : session.type === "conflicted" || session.type === "diff" ? (
+                  <DiffViewer session={session} />
+                ) : (
+                  <MemoizedEditorView session={session} />
+                )}
+              </Freeze>
+            ))}
+          </Panel>
+
+          {documentPreview && (
+            <>
+              <PanelResizeHandle className="panel-resize-handle" />
+              <Panel
+                id="pdf-preview-panel"
+                order={2}
+                minSize={35}
+                defaultSize={35}
+              >
+                <ScopedThemeProvider
+                  scope="editorSidebar"
+                  id="editorSidebar"
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    overflow: "hidden",
+                    borderLeft: "1px solid var(--border)",
+                    height: "100%",
+                    bg: "background"
+                  }}
+                >
+                  {documentPreview.url ? (
+                    <Suspense
+                      fallback={
+                        <DownloadAttachmentProgress
+                          hash={documentPreview.hash}
+                        />
+                      }
+                    >
+                      <PDFPreview
+                        fileUrl={documentPreview.url}
+                        hash={documentPreview.hash}
+                        onClose={() =>
+                          useEditorStore.setState({
+                            documentPreview: undefined
+                          })
+                        }
+                      />
+                    </Suspense>
+                  ) : (
+                    <DownloadAttachmentProgress hash={documentPreview.hash} />
+                  )}
+                </ScopedThemeProvider>
+              </Panel>
+            </>
+          )}
+        </PanelGroup>
+        <DropZone overlayRef={overlayRef} />
+        {arePropertiesVisible && activeSessionId && (
+          <Properties sessionId={activeSessionId} />
+        )}
+        {isTOCVisible && activeSessionId && (
+          <TableOfContents sessionId={activeSessionId} />
+        )}
+      </ScopedThemeProvider>
+    </>
+  );
+}
+
+const MemoizedEditorView = React.memo(
+  EditorView,
+  (prev, next) =>
+    prev.session.id === next.session.id &&
+    prev.session.type === next.session.type &&
+    prev.session.needsHydration === next.session.needsHydration
+);
+function EditorView({
+  session
+}: {
+  session:
+    | DefaultEditorSession
+    | NewEditorSession
+    | ReadonlyEditorSession
+    | DeletedEditorSession;
+}) {
+  const lastChangedTime = useRef<number>(0);
+  const root = useRef<HTMLDivElement>(null);
+
+  const toggleProperties = useEditorStore((store) => store.toggleProperties);
   const isFocusMode = useAppStore((store) => store.isFocusMode);
-  const isPreviewSession = !!previewSession.current;
-
-  const isMobile = useMobile();
-  const isTablet = useTablet();
+  const editor = useEditorManager((store) => store.editors[session.id]?.editor);
 
   useEffect(() => {
     const event = db.eventManager.subscribe(
       EVENTS.syncItemMerged,
-      async (item?: Record<string, string | number>) => {
+      async (item?: MaybeDeletedItem<Item>) => {
         if (
+          session.type === "new" ||
+          !editor ||
+          !session.note ||
           !item ||
-          lastSavedTime.current >= (item.dateEdited as number) ||
-          isPreviewSession ||
+          isDeleted(item) ||
+          (item.type !== "tiptap" && item.type !== "note") ||
           !appstore.get().isRealtimeSyncEnabled
-        )
+        ) {
+          console.log("ignoring real time sync");
           return;
+        }
 
-        const { id, contentId, locked } = editorstore.get().session;
-        const isContent = item.type === "tiptap" && item.id === contentId;
-        const isNote = item.type === "note" && item.id === id;
+        const isContent =
+          item.type === "tiptap" && item.noteId === session.note.id;
+        const isNote = item.type === "note" && item.id === session.note.id;
+        if (isContent && lastChangedTime.current < item.dateModified) {
+          if (!item.locked) return editor.updateContent(item.data);
 
-        if (isContent && editorInstance.current) {
-          if (locked) {
-            const result = await db.vault?.decryptContent(item).catch(() => {});
-            if (result) item.data = result.data;
-            else EV.publish(EVENTS.vaultLocked);
-          }
-          const oldHashes = editorInstance.current.getMediaHashes();
-
-          editorInstance.current.updateContent(item.data as string);
-
-          const newHashes = editorInstance.current.getMediaHashes();
-          const hashesToLoad = newHashes.filter(
-            (hash, index) => hash !== oldHashes[index]
-          );
-
-          if (appstore.get().isSyncing()) {
-            db.eventManager.subscribe(
-              EVENTS.syncCompleted,
-              async () => {
-                await db.attachments?.downloadMedia(id, hashesToLoad);
-              },
-              true
-            );
-          } else {
-            await db.attachments?.downloadMedia(id, hashesToLoad);
-          }
-        } else if (isNote) {
-          if (!locked && item.locked) return EV.publish(EVENTS.vaultLocked);
-
-          editorstore.get().updateSession(item);
-          if (item.title)
-            AppEventManager.publish(AppEvents.changeNoteTitle, {
-              title: item.title,
-              preventSave: true
-            });
+          const result = await db.vault
+            .decryptContent(item)
+            .catch(() => EV.publish(EVENTS.vaultLocked));
+          if (!result) return;
+          editor.updateContent(result.data);
+        } else if (isNote && session.note.title !== item.title) {
+          AppEventManager.publish(AppEvents.changeNoteTitle, {
+            title: item.title,
+            preventSave: true
+          });
         }
       }
     );
     return () => {
       event.unsubscribe();
     };
-  }, [editorInstance, isPreviewSession]);
+  }, [editor, session]);
 
-  const openSession = useCallback(async (noteId: string | number) => {
-    await editorstore.get().openSession(noteId);
-    previewSession.current = undefined;
+  useLayoutEffect(() => {
+    editor?.focus();
 
-    lastSavedTime.current = Date.now();
-    setTimestamp(Date.now());
-  }, []);
+    const element = root.current;
+    element?.classList.add("active");
+    return () => {
+      element?.classList.remove("active");
+    };
+  }, [editor]);
 
-  const loadMedia = useCallback(async () => {
-    if (previewSession.current) {
-      await db.content?.downloadMedia(
-        noteId,
-        previewSession.current.content,
-        true
-      );
-    } else if (noteId && editorstore.get().session.content) {
-      await db.attachments?.downloadMedia(noteId);
+  useEffect(() => {
+    if (!session.needsHydration && session.content) {
+      editor?.updateContent(session.content.data);
     }
-  }, [noteId]);
-
-  useEffect(() => {
-    if (!isNewSession) return;
-
-    (async function () {
-      await editorstore.newSession(nonce);
-
-      lastSavedTime.current = 0;
-      setTimestamp(Date.now());
-    })();
-  }, [isNewSession, nonce]);
-
-  useEffect(() => {
-    if (!isOldSession) return;
-
-    openSession(noteId);
-  }, [noteId]);
+  }, [editor, session.needsHydration]);
 
   return (
-    <ScopedThemeProvider scope="editor" sx={{ flex: 1 }}>
-      <Allotment
-        proportionalLayout={true}
-        onDragEnd={(sizes) => {
-          Config.set("editor:panesize", sizes[1]);
-        }}
-      >
-        <Allotment.Pane className="editor-pane">
-          <Flex
-            ref={dropRef}
-            id="editorContainer"
-            sx={{
-              position: "relative",
-              alignSelf: "stretch",
-              overflow: "hidden",
-              flex: 1,
-              flexDirection: "column",
-              background: "background"
-            }}
-          >
-            {previewSession.current && (
-              <PreviewModeNotice
-                {...previewSession.current}
-                onDiscard={() => openSession(noteId)}
-              />
-            )}
-            <Editor
-              nonce={timestamp}
-              content={() =>
-                previewSession.current?.content?.data ||
-                editorstore.get().session?.content?.data
-              }
-              onPreviewDocument={(url) => setDocPreview(url)}
-              onContentChange={() => (lastSavedTime.current = Date.now())}
-              options={{
-                readonly: isReadonly || isPreviewSession,
-                onRequestFocus: () => toggleProperties(false),
-                onLoadMedia: loadMedia,
-                focusMode: isFocusMode,
-                isMobile: isMobile || isTablet
-              }}
-            />
+    <Flex
+      ref={root}
+      id="editorContainer"
+      sx={{
+        position: "relative",
+        alignSelf: "stretch",
+        overflow: "hidden",
+        flex: 1,
+        flexDirection: "column",
+        background: "background"
+      }}
+    >
+      <div className="dialogContainer" />
+      <Editor
+        id={session.id}
+        nonce={1}
+        content={() => session.content?.data}
+        session={session}
+        onPreviewDocument={(preview) =>
+          useEditorStore.setState({ documentPreview: preview })
+        }
+        onContentChange={() => (lastChangedTime.current = Date.now())}
+        onSave={(content, ignoreEdit) => {
+          const currentSession = useEditorStore
+            .getState()
+            .getSession(session.id, ["default", "readonly", "new"]);
+          if (!currentSession) return;
 
-            {arePropertiesVisible && (
-              <Properties
-                onOpenPreviewSession={async (session: PreviewSession) => {
-                  previewSession.current = session;
-                  setTimestamp(Date.now());
-                }}
-              />
-            )}
-            <DropZone overlayRef={overlayRef} />
-          </Flex>
-        </Allotment.Pane>
-        {docPreview && (
-          <Allotment.Pane
-            minSize={450}
-            preferredSize={Config.get("editor:panesize", 500)}
-          >
-            <ScopedThemeProvider
-              scope="editorSidebar"
-              id="editorSidebar"
-              sx={{
-                display: "flex",
-                flexDirection: "column",
-                overflow: "hidden",
-                borderLeft: "1px solid var(--border)",
-                height: "100%",
-                bg: "background"
-              }}
-            >
-              {docPreview.url ? (
-                <Suspense
-                  fallback={
-                    <DownloadAttachmentProgress hash={docPreview.hash} />
-                  }
-                >
-                  <PDFPreview
-                    fileUrl={docPreview.url}
-                    hash={docPreview.hash}
-                    onClose={() => setDocPreview(undefined)}
-                  />
-                </Suspense>
-              ) : (
-                <DownloadAttachmentProgress hash={docPreview.hash} />
-              )}
-            </ScopedThemeProvider>
-          </Allotment.Pane>
-        )}
-      </Allotment>
-    </ScopedThemeProvider>
+          const data = content();
+          if (!currentSession.content)
+            currentSession.content = { type: "tiptap", data };
+          else currentSession.content.data = data;
+
+          logger.debug("scheduling save", {
+            id: session.id,
+            length: data.length
+          });
+          deferredSave(currentSession.id, currentSession.id, ignoreEdit, data);
+        }}
+        options={{
+          readonly: session?.type === "readonly" || session?.type === "deleted",
+          onRequestFocus: () => toggleProperties(false),
+          focusMode: isFocusMode
+        }}
+      />
+    </Flex>
   );
 }
 
@@ -341,102 +388,102 @@ function DownloadAttachmentProgress(props: DownloadAttachmentProgressProps) {
         max={100}
         sx={{ width: ["90%", "35%"], mt: 1 }}
       />
+      <Button
+        variant="secondary"
+        mt={2}
+        onClick={() => {
+          const id = useEditorStore.getState().activeSessionId;
+          useEditorStore.setState({ documentPreview: undefined });
+          if (id) db.fs().cancel(id).catch(console.error);
+        }}
+      >
+        Cancel
+      </Button>
     </Flex>
   );
 }
 
 type EditorOptions = {
-  isMobile?: boolean;
   headless?: boolean;
   readonly?: boolean;
   focusMode?: boolean;
   onRequestFocus?: () => void;
-  onLoadMedia?: () => void;
 };
 type EditorProps = {
+  id: string;
+  session: EditorSession;
   content: () => string | undefined;
   nonce?: number;
   options?: EditorOptions;
   onContentChange?: () => void;
+  onSave?: OnChangeHandler;
   onPreviewDocument?: (preview: DocumentPreview) => void;
 };
 export function Editor(props: EditorProps) {
-  const { content, nonce, options, onContentChange, onPreviewDocument } = props;
-  const { readonly, headless, onLoadMedia, isMobile } = options || {
+  const {
+    id,
+    session,
+    content,
+    onSave,
+    nonce,
+    options,
+    onContentChange,
+    onPreviewDocument
+  } = props;
+  const { readonly, headless } = options || {
     headless: false,
     readonly: false,
-    focusMode: false,
-    isMobile: false
+    focusMode: false
   };
-  const [isLoading, setIsLoading] = useState(true);
-
-  const editor = useEditorInstance();
+  useScrollToBlock(session);
 
   useEffect(() => {
     const event = AppEventManager.subscribe(
       AppEvents.UPDATE_ATTACHMENT_PROGRESS,
-      ({ hash, loaded, total, type }: AttachmentProgress) => {
-        editor.current?.sendAttachmentProgress(
+      ({ hash, loaded, total }: AttachmentProgress) => {
+        const editor = useEditorManager.getState().getEditor(id)?.editor;
+        editor?.sendAttachmentProgress(
           hash,
-          type,
           Math.round((loaded / total) * 100)
         );
       }
     );
 
-    const mediaAttachmentDownloadedEvent = EV.subscribe(
-      EVENTS.mediaAttachmentDownloaded,
-      ({
-        groupId,
-        hash,
-        attachmentType,
-        src
-      }: {
-        groupId?: string;
-        attachmentType: "image" | "webclip" | "generic";
-        hash: string;
-        src: string;
-      }) => {
-        if (groupId?.startsWith("monograph")) return;
-        if (attachmentType === "image") {
-          editor.current?.loadImage(hash, src);
-        } else if (attachmentType === "webclip") {
-          editor.current?.loadWebClip(hash, src);
-        }
-      }
-    );
-
     return () => {
       event.unsubscribe();
-      mediaAttachmentDownloadedEvent.unsubscribe();
     };
-  }, [editor]);
+  }, [id]);
 
   return (
-    <EditorChrome isLoading={isLoading} {...props}>
+    <EditorChrome {...props}>
       <Tiptap
-        isMobile={isMobile}
+        id={id}
+        isHydrating={!!session.needsHydration}
         nonce={nonce}
         readonly={readonly}
-        toolbarContainerId={headless ? undefined : "editorToolbar"}
         content={content}
         downloadOptions={{
           corsHost: Config.get("corsProxy", "https://cors.notesnook.com")
         }}
-        onLoad={() => {
-          if (onLoadMedia) onLoadMedia();
-          if (nonce && nonce > 0) setIsLoading(false);
+        onLoad={(editor) => {
+          editor = editor || useEditorManager.getState().getEditor(id)?.editor;
+          if (editor) restoreSelection(editor, id);
+          restoreScrollPosition(session);
         }}
+        onSelectionChange={({ from, to }) =>
+          Config.set(`${id}:selection`, { from, to })
+        }
         onContentChange={onContentChange}
-        onChange={onEditorChange}
+        onChange={onSave}
         onDownloadAttachment={(attachment) => saveAttachment(attachment.hash)}
-        onPreviewAttachment={async ({ hash, dataurl }) => {
-          const attachment = db.attachments?.attachment(hash);
-          if (attachment && attachment.metadata.type.startsWith("image/")) {
+        onPreviewAttachment={async (data) => {
+          const { hash } = data;
+          const attachment = await db.attachments.attachment(hash);
+          if (attachment && attachment.mimeType.startsWith("image/")) {
             const container = document.getElementById("dialogContainer");
             if (!(container instanceof HTMLElement)) return;
 
-            dataurl = dataurl || (await downloadAttachment(hash, "base64"));
+            const dataurl = await downloadAttachment(hash, "base64", id);
             if (!dataurl)
               return showToast("error", "This image cannot be previewed.");
 
@@ -453,68 +500,129 @@ export function Editor(props: EditorProps) {
             );
           } else if (attachment && onPreviewDocument) {
             onPreviewDocument({ hash });
-            const blob = await downloadAttachment(hash, "blob");
-            if (!blob) return;
+            const blob = await downloadAttachment(hash, "blob", id);
+            if (!blob) {
+              useEditorStore.setState({ documentPreview: undefined });
+              return;
+            }
             onPreviewDocument({ url: URL.createObjectURL(blob), hash });
           }
         }}
-        onInsertAttachment={(type) => {
+        onInsertAttachment={async (type) => {
           const mime = type === "file" ? "*/*" : "image/*";
-          insertAttachment(mime).then((file) => {
-            if (!file) return;
-            editor.current?.attachFile(file);
+          const attachments = await insertAttachments(mime);
+          const editor = useEditorManager.getState().getEditor(id)?.editor;
+
+          if (!attachments) return;
+          for (const attachment of attachments) {
+            editor?.attachFile(attachment);
+          }
+        }}
+        onGetAttachmentData={async (attachment) => {
+          logger.debug("Getting attachment data", {
+            hash: attachment.hash,
+            type: attachment.type
           });
+
+          const result = await downloadAttachment(
+            attachment.hash,
+            attachment.type === "web-clip" ? "text" : "base64",
+            id?.toString()
+          );
+
+          if (!result)
+            logger.debug("Got no result after downloading attachment", {
+              hash: attachment.hash,
+              type: attachment.type
+            });
+
+          return result;
         }}
-        onAttachFile={async (file) => {
-          const result = await attachFile(file);
+        onAttachFiles={async (files) => {
+          const editor = useEditorManager.getState().getEditor(id)?.editor;
+          const result = await attachFiles(files);
           if (!result) return;
-          editor.current?.attachFile(result);
+          result.forEach((attachment) => editor?.attachFile(attachment));
         }}
-      />
+        onInsertInternalLink={async (attributes) => {
+          const link = await NoteLinkingDialog.show({ attributes });
+          return link || undefined;
+        }}
+      >
+        {headless ? null : (
+          <>
+            <Titlebox id={id} readonly={readonly || false} />
+            <Header id={id} readonly={readonly || false} />
+          </>
+        )}
+      </Tiptap>
     </EditorChrome>
   );
 }
 
-function EditorChrome(
-  props: PropsWithChildren<EditorProps & { isLoading: boolean }>
-) {
-  const { options, children, isLoading } = props;
-  const { readonly, focusMode, headless, onRequestFocus, isMobile } =
-    options || {
-      headless: false,
-      readonly: false,
-      focusMode: false,
-      isMobile: false
+function EditorChrome(props: PropsWithChildren<EditorProps>) {
+  const { id, options, children } = props;
+  const { focusMode, headless, onRequestFocus } = options || {
+    headless: false,
+    readonly: false,
+    focusMode: false
+  };
+  const editorMargins = useEditorStore((store) => store.editorMargins);
+  const editorContainerRef = useRef<HTMLElement>(null);
+  const editorScrollRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!editorScrollRef.current) return;
+    function onResize(
+      entries: ResizeObserverEntry[],
+      _observer: ResizeObserver
+    ) {
+      const editor = editorContainerRef.current?.querySelector(
+        ".ProseMirror"
+      ) as HTMLElement | undefined;
+      const parent = editorScrollRef.current?.getBoundingClientRect();
+      const child = editorContainerRef.current?.getBoundingClientRect();
+      if (!parent || !child || !editor || entries.length <= 0) return;
+
+      const CONTAINER_MARGIN = 30;
+      const negativeSpace = Math.abs(
+        parent.left - child.left - CONTAINER_MARGIN
+      );
+
+      editor.style.marginLeft = `-${negativeSpace}px`;
+      editor.style.marginRight = `-${negativeSpace}px`;
+      editor.style.paddingLeft = `${negativeSpace}px`;
+      editor.style.paddingRight = `${negativeSpace}px`;
+    }
+    const observer = new ResizeObserver(debounce(onResize, 500));
+    observer.observe(editorScrollRef.current);
+    return () => {
+      observer.disconnect();
     };
-  const editorMargins = useStore((store) => store.editorMargins);
+  }, []);
 
   if (headless) return <>{children}</>;
 
   return (
     <>
-      {isLoading ? (
-        <AnimatedFlex
-          sx={{
-            position: "absolute",
-            overflow: "hidden",
-            flex: 1,
-            flexDirection: "column",
-            width: "100%",
-            height: "100%",
-            zIndex: 999,
-            bg: "background"
-          }}
-        >
-          <EditorLoader />
-        </AnimatedFlex>
-      ) : null}
-
-      <Toolbar />
       <FlexScrollContainer
-        className="editorScroll"
-        style={{ display: "flex", flexDirection: "column", flex: 1 }}
+        id={`editorScroll_${id}`}
+        scrollRef={editorScrollRef}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          flex: 1
+        }}
+        suppressScrollX
+        onScroll={debounce((e) => {
+          if (e.target instanceof HTMLElement) {
+            const scrollTop = e.target.scrollTop;
+            Config.set(`${id}:scroll-position`, scrollTop);
+          }
+        }, 500)}
       >
         <Flex
+          ref={editorContainerRef}
           variant="columnFill"
           className="editor"
           sx={{
@@ -522,105 +630,14 @@ function EditorChrome(
             maxWidth: editorMargins ? "min(100%, 850px)" : "auto",
             width: "100%"
           }}
-          pl={6}
-          pr={2}
+          pl={[2, 2, 6]}
+          pr={[2, 2, 6]}
           onClick={onRequestFocus}
         >
-          {!isMobile && (
-            <Box
-              id="editorToolbar"
-              sx={{
-                display: readonly ? "none" : "flex",
-                bg: "background",
-                position: "sticky",
-                top: 0,
-                mb: 1,
-                zIndex: 2
-              }}
-            />
-          )}
-          <Titlebox readonly={readonly || false} />
-          <Header readonly={readonly || false} />
-          <AnimatedFlex
-            initial={{ opacity: 0 }}
-            animate={{ opacity: isLoading ? 0 : 1 }}
-            transition={{ duration: 0.3, ease: "easeInOut" }}
-            sx={{ flex: 1 }}
-          >
-            {children}
-          </AnimatedFlex>
+          {children}
         </Flex>
       </FlexScrollContainer>
-      {isMobile && (
-        <Box
-          id="editorToolbar"
-          sx={{
-            display: readonly ? "none" : "flex",
-            bg: "background",
-            position: "sticky",
-            top: 0,
-            mb: 1,
-            zIndex: 2,
-            px: [2, 2, 35]
-          }}
-        />
-      )}
     </>
-  );
-}
-
-type PreviewModeNoticeProps = PreviewSession & {
-  onDiscard: () => void;
-};
-function PreviewModeNotice(props: PreviewModeNoticeProps) {
-  const { dateCreated, dateEdited, content, onDiscard } = props;
-  const disablePreviewMode = useCallback(
-    async (cancelled: boolean) => {
-      const { id, sessionId } = editorstore.get().session;
-      if (!cancelled) {
-        await editorstore.saveSessionContent(id, sessionId, content);
-      }
-      onDiscard();
-    },
-    [onDiscard, content]
-  );
-
-  return (
-    <Flex
-      bg="var(--background-secondary)"
-      p={2}
-      sx={{ alignItems: "center", justifyContent: "space-between" }}
-      data-test-id="preview-notice"
-    >
-      <Flex mr={4} sx={{ flexDirection: "column" }}>
-        <Text variant={"subtitle"}>Preview</Text>
-        <Text variant={"body"}>
-          You are previewing note version edited from{" "}
-          {getFormattedDate(dateCreated)} to {getFormattedDate(dateEdited)}.
-        </Text>
-      </Flex>
-      <Flex>
-        <Button
-          data-test-id="preview-notice-cancel"
-          variant={"secondary"}
-          mr={1}
-          px={4}
-          onClick={() => disablePreviewMode(true)}
-        >
-          Cancel
-        </Button>
-        <Button
-          variant="accent"
-          data-test-id="preview-notice-restore"
-          px={4}
-          onClick={async () => {
-            await disablePreviewMode(false);
-          }}
-        >
-          Restore
-        </Button>
-      </Flex>
-    </Flex>
   );
 }
 
@@ -629,7 +646,6 @@ type DropZoneProps = {
 };
 function DropZone(props: DropZoneProps) {
   const { overlayRef } = props;
-  const editor = useEditorInstance();
 
   return (
     <Box
@@ -646,13 +662,14 @@ function DropZone(props: DropZoneProps) {
         display: "none"
       }}
       onDrop={async (e) => {
-        if (!editor || !e.dataTransfer.files?.length) return;
-        e.preventDefault();
+        const { activeEditorId, getEditor } = useEditorManager.getState();
+        const editor = getEditor(activeEditorId || "")?.editor;
+        if (!e.dataTransfer.files?.length || !editor) return;
 
-        for (const file of e.dataTransfer.files) {
-          const result = await attachFile(file);
-          if (!result) continue;
-          editor.current?.attachFile(result);
+        e.preventDefault();
+        const attachments = await attachFiles(Array.from(e.dataTransfer.files));
+        for (const attachment of attachments || []) {
+          editor.attachFile(attachment);
         }
       }}
     >
@@ -675,7 +692,7 @@ function DropZone(props: DropZoneProps) {
 }
 
 function useDragOverlay() {
-  const dropElementRef = useRef<HTMLElement>(null);
+  const dropElementRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLElement>();
 
   useEffect(() => {
@@ -719,10 +736,112 @@ function useDragOverlay() {
   return [dropElementRef, overlayRef] as const;
 }
 
+function useScrollToBlock(session: EditorSession) {
+  const blockId = useEditorStore(
+    (store) => store.getSession(session.id)?.activeBlockId
+  );
+  useEffect(() => {
+    if (!blockId) return;
+    scrollIntoViewById(blockId);
+    useEditorStore.getState().updateSession(session.id, [session.type], {
+      activeBlockId: undefined
+    });
+  }, [session.id, session.type, blockId]);
+}
+
 function isFile(e: DragEvent) {
   return (
     e.dataTransfer &&
     (e.dataTransfer.files?.length > 0 ||
       e.dataTransfer.types?.some((a) => a === "Files"))
   );
+}
+
+function restoreScrollPosition(session: EditorSession) {
+  if (session?.activeBlockId) return scrollIntoViewById(session.activeBlockId);
+
+  const scrollContainer = document.getElementById(`editorScroll_${session.id}`);
+  const scrollPosition = Config.get(`${session.id}:scroll-position`, 0);
+  if (scrollContainer) {
+    if (scrollContainer.scrollHeight < scrollPosition) {
+      const observer = new ResizeObserver(() => {
+        if (scrollContainer.scrollHeight >= scrollPosition) {
+          observer.disconnect();
+          requestAnimationFrame(
+            () => (scrollContainer.scrollTop = scrollPosition)
+          );
+          clearTimeout(timeout);
+        }
+      });
+      observer.observe(scrollContainer);
+      // eslint-disable-next-line no-var
+      var timeout = setTimeout(() => {
+        observer.disconnect();
+      }, 30 * 1000);
+    } else
+      requestAnimationFrame(() => (scrollContainer.scrollTop = scrollPosition));
+  }
+}
+
+function restoreSelection(editor: IEditor, id: string) {
+  setTimeout(() => {
+    editor.focus({
+      position: Config.get(`${id}:selection`, { from: 0, to: 0 })
+    });
+  });
+}
+
+type UnlockNoteViewProps = { session: LockedEditorSession };
+function UnlockNoteView(props: UnlockNoteViewProps) {
+  const { session } = props;
+  const root = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const element = root.current;
+    element?.classList.add("active");
+    return () => {
+      element?.classList.remove("active");
+    };
+  }, []);
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        overflow: "hidden",
+        alignItems: "center",
+        flex: 1
+      }}
+      ref={root}
+    >
+      <UnlockView
+        buttonTitle="Open note"
+        subtitle="Please enter the password to unlock this note."
+        title={session.note.title}
+        unlock={async (password) => {
+          const note = await db.vault.open(session.id, password);
+          if (!note || !note.content)
+            throw new Error("note with this id does not exist.");
+
+          useEditorStore.getState().addSession({
+            type: session.note.readonly ? "readonly" : "default",
+            locked: true,
+            id: session.id,
+            note: session.note,
+            saveState: SaveState.Saved,
+            sessionId: `${Date.now()}`,
+            pinned: session.pinned,
+            preview: session.preview,
+            content: note.content
+          });
+        }}
+      />
+    </div>
+  );
+}
+
+function EditorActionBarPortal() {
+  const container = document.getElementById("titlebar-portal-container");
+  if (!container) return null;
+  return ReactDOM.createPortal(<EditorActionBar />, container);
 }

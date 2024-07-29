@@ -17,9 +17,13 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-import { presentDialog } from "../../components/dialog/functions";
-import { ToastEvent } from "../../services/event-manager";
 import { db } from "../../common/database";
+import { validateAppLockPassword } from "../../common/database/encryption";
+import { presentDialog } from "../../components/dialog/functions";
+import BiometricService from "../../services/biometrics";
+import { ToastManager } from "../../services/event-manager";
+import SettingsService from "../../services/settings";
+import { useUserStore } from "../../stores/use-user-store";
 import { sleep } from "../../utils/time";
 
 export async function verifyUser(
@@ -49,7 +53,7 @@ export async function verifyUser(
             await onsuccess();
           });
         } else {
-          ToastEvent.show({
+          ToastManager.show({
             heading: "Incorrect password",
             message: "The account password you entered is incorrect",
             type: "error",
@@ -58,7 +62,7 @@ export async function verifyUser(
           return false;
         }
       } catch (e) {
-        ToastEvent.show({
+        ToastManager.show({
           heading: "Failed to verify",
           message: e.message,
           type: "error",
@@ -66,6 +70,70 @@ export async function verifyUser(
         });
         return false;
       }
+    }
+  });
+}
+
+export async function verifyUserWithApplock() {
+  const keyboardType = SettingsService.getProperty("applockKeyboardType");
+  return new Promise((resolve) => {
+    if (SettingsService.getProperty("appLockHasPasswordSecurity")) {
+      presentDialog({
+        title: "Verify it's you",
+        input: true,
+        inputPlaceholder: `Enter app lock ${
+          keyboardType === "numeric" ? "pin" : "password"
+        }`,
+        paragraph: `Please enter your app lock ${
+          keyboardType === "numeric" ? "pin" : "password"
+        }`,
+        positiveText: "Verify",
+        secureTextEntry: true,
+        negativeText: "Cancel",
+        keyboardType: keyboardType,
+        positivePress: async (value) => {
+          try {
+            const verified = await validateAppLockPassword(value);
+            if (!verified) {
+              ToastManager.show({
+                heading: `Invalid ${
+                  keyboardType === "numeric" ? "pin" : "password"
+                }`,
+                type: "error",
+                context: "local"
+              });
+              return false;
+            }
+            resolve(verified);
+          } catch (e) {
+            resolve(false);
+            return false;
+          }
+          return true;
+        }
+      });
+    } else {
+      BiometricService.isBiometryAvailable().then((available) => {
+        if (available) {
+          BiometricService.validateUser("Verify it's you").then((verified) => {
+            resolve(verified);
+          });
+        } else if (useUserStore.getState().user) {
+          let verified = false;
+          verifyUser(
+            null,
+            () => {
+              resolve(true);
+            },
+            false,
+            () => {
+              resolve(verified);
+            }
+          );
+        } else {
+          resolve(true);
+        }
+      });
     }
   });
 }

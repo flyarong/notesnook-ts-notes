@@ -17,25 +17,27 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+import { getFormattedDate } from "@notesnook/common";
 import { EVENTS } from "@notesnook/core/dist/common";
+import { useThemeColors } from "@notesnook/theme";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, View } from "react-native";
 import { FlatList } from "react-native-actions-sheet";
 import RNFetchBlob from "react-native-blob-util";
-import DocumentPicker, {
-  DocumentPickerResponse
-} from "react-native-document-picker";
+import DocumentPicker from "react-native-document-picker";
 import * as ScopedStorage from "react-native-scoped-storage";
+import { unzip } from "react-native-zip-archive";
 import { db } from "../../../common/database";
 import storage from "../../../common/database/storage";
+import { cacheDir, copyFileAsync } from "../../../common/filesystem/utils";
 import {
-  ToastEvent,
+  ToastManager,
   eSubscribeEvent,
   eUnSubscribeEvent
 } from "../../../services/event-manager";
+import Navigation from "../../../services/navigation";
 import SettingsService from "../../../services/settings";
-import { initialize } from "../../../stores";
-import { useThemeColors } from "@notesnook/theme";
+import { refreshAllStores } from "../../../stores/create-db-collection-store";
 import { eCloseRestoreDialog, eOpenRestoreDialog } from "../../../utils/events";
 import { SIZE } from "../../../utils/size";
 import { Dialog } from "../../dialog";
@@ -46,9 +48,7 @@ import { Button } from "../../ui/button";
 import Seperator from "../../ui/seperator";
 import SheetWrapper from "../../ui/sheet";
 import Paragraph from "../../ui/typography/paragraph";
-import { getFormattedDate } from "@notesnook/common";
-import { unzip } from "react-native-zip-archive";
-import { cacheDir, copyFileAsync } from "../../../common/filesystem/utils";
+import { useUserStore } from "../../../stores/use-user-store";
 
 const RestoreDataSheet = () => {
   const [visible, setVisible] = useState(false);
@@ -81,7 +81,7 @@ const RestoreDataSheet = () => {
   }, [restoring]);
 
   const showIsWorking = () => {
-    ToastEvent.show({
+    ToastManager.show({
       heading: "Restoring Backup",
       message: "Your backup data is being restored. please wait.",
       type: "error",
@@ -184,7 +184,7 @@ const RestoreDataComponent = ({ close, setRestoring, restoring }) => {
         title: "Encrypted backup",
         input: true,
         inputPlaceholder: "Password",
-        paragraph: "Please enter password of this backup file to restore it",
+        paragraph: "Please enter password of this backup file",
         positiveText: "Restore",
         secureTextEntry: true,
         onClose: () => {
@@ -192,10 +192,17 @@ const RestoreDataComponent = ({ close, setRestoring, restoring }) => {
           resolve(undefined);
         },
         negativeText: "Cancel",
-        positivePress: async (password) => {
-          resolve(password);
+        positivePress: async (password, isEncryptionKey) => {
+          resolve({
+            value: password,
+            isEncryptionKey
+          });
           resolved = true;
           return true;
+        },
+        check: {
+          info: "Use encryption key",
+          type: "transparent"
         }
       });
     });
@@ -235,20 +242,24 @@ const RestoreDataComponent = ({ close, setRestoring, restoring }) => {
     }
   };
 
-  const restoreBackup = async (backup, password) => {
-    await db.backup.import(backup, password);
+  const restoreBackup = async (backup, password, key) => {
+    await db.transaction(async () => {
+      await db.backup.import(backup, password, key);
+    });
     await db.initCollections();
-    initialize();
-    ToastEvent.show({
+    refreshAllStores();
+    ToastManager.show({
       heading: "Backup restored successfully.",
       type: "success",
       context: "global"
     });
+    Navigation.queueRoutesForUpdate();
     return true;
   };
 
   const backupError = (e) => {
-    ToastEvent.show({
+    console.log(e.stack);
+    ToastManager.show({
       heading: "Restore failed",
       message:
         e.message ||
@@ -274,38 +285,48 @@ const RestoreDataComponent = ({ close, setRestoring, restoring }) => {
 
       const backupFiles = await RNFetchBlob.fs.ls(zipOutputFolder);
 
-      if (backupFiles.findIndex((file) => file === ".nnbackup") === -1) {
-        throw new Error("Backup file is invalid");
-      }
+      // if (backupFiles.findIndex((file) => file === ".nnbackup") === -1) {
+      //   throw new Error("Backup file is invalid");
+      // }
 
-      let password;
+      await db.transaction(async () => {
+        let password;
+        let key;
+        console.log(
+          `Found ${backupFiles?.length} files to restore from backup`
+        );
+        for (const path of backupFiles) {
+          if (path === ".nnbackup") continue;
+          const filePath = `${zipOutputFolder}/${path}`;
+          const data = await RNFetchBlob.fs.readFile(filePath, "utf8");
+          const parsed = JSON.parse(data);
 
-      console.log(`Found ${backupFiles?.length} files to restore from backup`);
-      for (const path of backupFiles) {
-        if (path === ".nnbackup") continue;
-        const filePath = `${zipOutputFolder}/${path}`;
-        const data = await RNFetchBlob.fs.readFile(filePath, "utf8");
-        const parsed = JSON.parse(data);
+          if (parsed.encrypted && !password) {
+            console.log("Backup is encrypted...", "requesting password");
+            const { value, isEncryptionKey } = await withPassword();
 
-        if (parsed.encrypted && !password) {
-          console.log("Backup is encrypted...", "requesting password");
-          password = await withPassword();
-          if (!password) throw new Error("Failed to decrypt backup");
+            if (isEncryptionKey) {
+              key = value;
+            } else {
+              password = value;
+            }
+            if (!password && !key) throw new Error("Failed to decrypt backup");
+          }
+          await db.backup.import(parsed, password, key);
+          console.log("Imported", path);
         }
-        await db.backup.import(parsed, password);
-        console.log("Imported", path);
-      }
+      });
       // Remove files from cache
       RNFetchBlob.fs.unlink(zipOutputFolder).catch(console.log);
       if (remove) {
         RNFetchBlob.fs.unlink(file).catch(console.log);
       }
 
-      await db.initCollections();
-      initialize();
+      refreshAllStores();
+      Navigation.queueRoutesForUpdate();
       setRestoring(false);
       close();
-      ToastEvent.show({
+      ToastManager.show({
         heading: "Backup restored successfully.",
         type: "success",
         context: "global"
@@ -323,10 +344,19 @@ const RestoreDataComponent = ({ close, setRestoring, restoring }) => {
   async function restoreFromNNBackup(backup) {
     try {
       if (backup.data.iv && backup.data.salt) {
-        const password = await withPassword();
-        if (password) {
+        const { value, isEncryptionKey } = await withPassword();
+
+        let key;
+        let password;
+        if (isEncryptionKey) {
+          key = value;
+        } else {
+          password = value;
+        }
+
+        if (key || password) {
           try {
-            await restoreBackup(backup, password);
+            await restoreBackup(backup, password, key);
             close();
             setRestoring(false);
           } catch (e) {
@@ -354,9 +384,19 @@ const RestoreDataComponent = ({ close, setRestoring, restoring }) => {
         return;
       }
       try {
+        useUserStore.setState({
+          disableAppLockRequests: true
+        });
+        console.log("disabled...");
         const file = await DocumentPicker.pickSingle({
           copyTo: "cachesDirectory"
         });
+
+        setTimeout(() => {
+          useUserStore.setState({
+            disableAppLockRequests: false
+          });
+        }, 1000);
 
         if (file.name.endsWith(".nnbackupz")) {
           setRestoring(true);
@@ -369,6 +409,11 @@ const RestoreDataComponent = ({ close, setRestoring, restoring }) => {
         }
       } catch (e) {
         console.log("error", e.stack);
+        setTimeout(() => {
+          useUserStore.setState({
+            disableAppLockRequests: false
+          });
+        }, 1000);
         setRestoring(false);
         backupError(e);
       }
@@ -385,7 +430,7 @@ const RestoreDataComponent = ({ close, setRestoring, restoring }) => {
         borderRadius: 0,
         flexDirection: "row",
         borderBottomWidth: 0.5,
-        borderBottomColor: colors.secondary.background
+        borderBottomColor: colors.primary.border
       }}
     >
       <View

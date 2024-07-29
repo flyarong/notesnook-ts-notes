@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import { SettingsGroup } from "./types";
 import { useStore as useAppStore } from "../../stores/app-store";
+import { ConfirmDialog } from "../confirm";
 
 export const SyncSettings: SettingsGroup[] = [
   {
@@ -78,14 +79,56 @@ export const SyncSettings: SettingsGroup[] = [
       {
         key: "force-sync",
         title: "Having problems with sync?",
-        description: "Try force sync to resolve issues with syncing.",
+        description: `Force push:
+Use this if changes made on this device are not appearing on other devices. This will overwrite the data on the server with the data from this device.
+
+Force pull:
+Use this if changes from other devices are not appearing on this device. This will overwrite the data on this device with the latest data from the server.
+
+**These must only be used for troubleshooting. Using them regularly for sync is not recommended and will lead to unexpected data loss and other issues. If you are having persistent issues with sync, please report them to us at support@streetwriters.co.**`,
         keywords: ["force sync", "sync troubleshoot"],
         components: [
           {
             type: "button",
-            title: "Force sync",
+            title: "Force push",
             variant: "error",
-            action: () => useAppStore.getState().sync(true, true)
+            action: () =>
+              ConfirmDialog.show({
+                title: "Are you sure?",
+                message:
+                  "This must only be used for troubleshooting. Using them regularly for sync is **not recommended** and will lead to **unexpected data loss** and other issues. If you are having persistent issues with sync, please report them to us at support@streetwriters.co.",
+                checks: {
+                  accept: { text: "I understand.", default: false }
+                },
+                positiveButtonText: "Proceed",
+                negativeButtonText: "Cancel"
+              }).then((result) => {
+                if (!result || !result.accept) return;
+                return useAppStore
+                  .getState()
+                  .sync({ force: true, type: "send" });
+              })
+          },
+          {
+            type: "button",
+            title: "Force pull",
+            variant: "error",
+            action: () =>
+              ConfirmDialog.show({
+                title: "Are you sure?",
+                message:
+                  "This must only be used for troubleshooting. Using them regularly for sync is **not recommended** and will lead to **unexpected data loss** and other issues. If you are having persistent issues with sync, please report them to us at support@streetwriters.co.",
+                checks: {
+                  accept: { text: "I understand.", default: false }
+                },
+                positiveButtonText: "Proceed",
+                negativeButtonText: "Cancel"
+              }).then((result) => {
+                if (!result || !result.accept) return;
+                return useAppStore
+                  .getState()
+                  .sync({ force: true, type: "fetch" });
+              })
           }
         ]
       }

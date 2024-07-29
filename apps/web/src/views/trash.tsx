@@ -18,28 +18,34 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 import ListContainer from "../components/list-container";
-import { confirm } from "../common/dialog-controller";
 import { useStore, store } from "../stores/trash-store";
 import { showToast } from "../utils/toast";
 import useNavigate from "../hooks/use-navigate";
 import Placeholder from "../components/placeholders";
+import { useSearch } from "../hooks/use-search";
+import { db } from "../common/db";
+import { ListLoader } from "../components/loaders/list-loader";
+import { ConfirmDialog } from "../dialogs/confirm";
 
 function Trash() {
   useNavigate("trash", store.refresh);
   const items = useStore((store) => store.trash);
   const refresh = useStore((store) => store.refresh);
   const clearTrash = useStore((store) => store.clear);
+  const filteredItems = useSearch("trash", (query) =>
+    db.lookup.trash(query).sorted()
+  );
 
+  if (!items) return <ListLoader />;
   return (
     <ListContainer
-      type="trash"
-      groupingKey="trash"
+      group="trash"
       refresh={refresh}
       placeholder={<Placeholder context="trash" />}
-      items={items}
+      items={filteredItems || items}
       button={{
         onClick: function () {
-          confirm({
+          ConfirmDialog.show({
             title: "Clear Trash",
             subtitle: "Are you sure you want to clear all the trash?",
             positiveButtonText: "Clear trash",

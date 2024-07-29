@@ -20,22 +20,26 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import hosts from "@notesnook/core/dist/utils/constants";
 import NetInfo from "@react-native-community/netinfo";
 import RNFetchBlob from "react-native-blob-util";
-import { ToastEvent } from "../../services/event-manager";
+import { ToastManager } from "../../services/event-manager";
 import { useAttachmentStore } from "../../stores/use-attachment-store";
-import { db } from "../database";
+import { DatabaseLogger, db } from "../database";
 import { cacheDir, fileCheck } from "./utils";
 import { createCacheDir, exists } from "./io";
 
 export async function downloadFile(filename, data, cancelToken) {
-  if (!data) return false;
+  if (!data) {
+    DatabaseLogger.log(`Error downloading file: ${filename}, reason: No data`);
+    return false;
+  }
 
+  DatabaseLogger.log(`Downloading ${filename}`);
   await createCacheDir();
-
   let { url, headers } = data;
   let path = `${cacheDir}/${filename}`;
 
   try {
     if (await exists(filename)) {
+      DatabaseLogger.log(`File Exists already: ${filename}`);
       return true;
     }
 
@@ -43,13 +47,24 @@ export async function downloadFile(filename, data, cancelToken) {
       method: "GET",
       headers
     });
-    if (!res.ok)
+
+    if (!res.ok) {
+      DatabaseLogger.log(
+        `Error downloading file: ${filename}, ${res.status}, ${res.statusText}, reason: Unable to resolve download url`
+      );
       throw new Error(`${res.status}: Unable to resolve download url`);
+    }
+
     const downloadUrl = await res.text();
 
-    if (!downloadUrl) throw new Error("Unable to resolve download url");
+    if (!downloadUrl) {
+      DatabaseLogger.log(
+        `Error downloading file: ${filename}, reason: Unable to resolve download url`
+      );
+      throw new Error("Unable to resolve download url");
+    }
     let totalSize = 0;
-    console.log("Download starting");
+    DatabaseLogger.log(`Download starting: ${filename}`);
     let request = RNFetchBlob.config({
       path: path,
       IOSBackgroundTask: true
@@ -60,13 +75,15 @@ export async function downloadFile(filename, data, cancelToken) {
           .getState()
           .setProgress(0, total, filename, recieved, "download");
         totalSize = total;
-        console.log("downloading: ", recieved, total);
+        DatabaseLogger.log(`Downloading: ${filename}, ${recieved}/${total}`);
       });
 
     cancelToken.cancel = () => {
       useAttachmentStore.getState().remove(filename);
       request.cancel();
+      DatabaseLogger.log(`Download cancelled: ${filename}`);
     };
+
     let response = await request;
     await fileCheck(response, totalSize);
     let status = response.info().status;
@@ -74,13 +91,13 @@ export async function downloadFile(filename, data, cancelToken) {
     return status >= 200 && status < 300;
   } catch (e) {
     if (e.message !== "canceled") {
-      ToastEvent.show({
+      ToastManager.show({
         heading: "Error downloading file",
         message: e.message,
         type: "error",
         context: "global"
       });
-      ToastEvent.show({
+      ToastManager.show({
         heading: "Error downloading file",
         message: e.message,
         type: "error",
@@ -90,22 +107,30 @@ export async function downloadFile(filename, data, cancelToken) {
 
     useAttachmentStore.getState().remove(filename);
     RNFetchBlob.fs.unlink(path).catch(console.log);
-    console.log("Download file error:", e, url, headers);
+    DatabaseLogger.error(e, {
+      url,
+      headers
+    });
     return false;
   }
 }
 
 export async function getUploadedFileSize(hash) {
-  const url = `${hosts.API_HOST}/s3?name=${hash}`;
-  const token = await db.user.tokenManager.getAccessToken();
-
-  const attachmentInfo = await fetch(url, {
-    method: "HEAD",
-    headers: { Authorization: `Bearer ${token}` }
-  });
-
-  const contentLength = parseInt(attachmentInfo.headers?.get("content-length"));
-  return isNaN(contentLength) ? 0 : contentLength;
+  try {
+    const url = `${hosts.API_HOST}/s3?name=${hash}`;
+    const token = await db.tokenManager.getAccessToken();
+    const attachmentInfo = await fetch(url, {
+      method: "HEAD",
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const contentLength = parseInt(
+      attachmentInfo.headers?.get("content-length")
+    );
+    return isNaN(contentLength) ? 0 : contentLength;
+  } catch (e) {
+    DatabaseLogger.error(e);
+    return -1;
+  }
 }
 
 export async function checkAttachment(hash) {
@@ -113,12 +138,14 @@ export async function checkAttachment(hash) {
   const isInternetReachable =
     internetState.isConnected && internetState.isInternetReachable;
   if (!isInternetReachable) return { success: true };
-  const attachment = db.attachments.attachment(hash);
+  const attachment = await db.attachments.attachment(hash);
   if (!attachment) return { failed: "Attachment not found." };
 
   try {
     const size = await getUploadedFileSize(hash);
-    if (size <= 0) return { failed: "File length is 0." };
+    if (size === -1) return { success: true };
+
+    if (size === 0) return { failed: "File length is 0." };
   } catch (e) {
     return { failed: e?.message };
   }

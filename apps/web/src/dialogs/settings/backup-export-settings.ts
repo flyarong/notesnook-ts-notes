@@ -43,17 +43,7 @@ export const BackupExportSettings: SettingsGroup[] = [
           {
             type: "button",
             title: "Create backup",
-            action: async () => {
-              if (
-                !useUserStore.getState().isLoggedIn &&
-                useSettingStore.getState().encryptBackups
-              )
-                useSettingStore.getState().toggleEncryptBackups();
-              const verified =
-                useSettingStore.getState().encryptBackups ||
-                (await verifyAccount());
-              if (verified) await createBackup();
-            },
+            action: createBackup,
             variant: "secondary"
           }
         ]
@@ -62,14 +52,14 @@ export const BackupExportSettings: SettingsGroup[] = [
         key: "restore-backup",
         title: "Restore backup",
         description: "Restore a backup file from your disk drive.",
-        isHidden: () => !useUserStore.getState().isLoggedIn && !IS_TESTING,
         components: [
           {
             type: "button",
             title: "Restore",
             action: async () => {
-              await importBackup();
-              await useAppStore.getState().refresh();
+              if (await importBackup()) {
+                await useAppStore.getState().refresh();
+              }
             },
             variant: "secondary"
           }
@@ -113,8 +103,11 @@ export const BackupExportSettings: SettingsGroup[] = [
         description: "Encrypt all backup files using your master key.",
         isHidden: () => !useUserStore.getState().isLoggedIn,
         onStateChange: (listener) => {
-          useUserStore.subscribe((s) => s.isLoggedIn, listener);
-          useSettingStore.subscribe((s) => s.encryptBackups, listener);
+          const subscriptions = [
+            useUserStore.subscribe((s) => s.isLoggedIn, listener),
+            useSettingStore.subscribe((s) => s.encryptBackups, listener)
+          ];
+          return () => subscriptions.forEach((s) => s());
         },
         components: [
           {
@@ -180,6 +173,11 @@ export const BackupExportSettings: SettingsGroup[] = [
               { value: "-", title: "Select format" },
               { value: "txt", title: "Text" },
               { value: "md", title: "Markdown", premium: true },
+              {
+                value: "md-frontmatter",
+                title: "Markdown + Frontmatter",
+                premium: true
+              },
               { value: "html", title: "HTML", premium: true }
             ],
             selectedOption: () => "-",
@@ -187,8 +185,8 @@ export const BackupExportSettings: SettingsGroup[] = [
               if (!db.notes || value === "-") return;
               if (await verifyAccount())
                 await exportNotes(
-                  value as "txt" | "md" | "html",
-                  db.notes.all.map((n) => n.id)
+                  value as "txt" | "md" | "html" | "md-frontmatter",
+                  db.notes.all
                 );
             }
           }

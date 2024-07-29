@@ -16,19 +16,17 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
-
-import React from "react";
-import ReactDOM from "react-dom";
-import "./index.css";
-import App from "./App";
-import "@notesnook/editor/styles/katex.min.css";
+global.Buffer = require("buffer").Buffer;
 import "@notesnook/editor/styles/fonts.mobile.css";
 import "@notesnook/editor/styles/katex-fonts.mobile.css";
+import "@notesnook/editor/styles/katex.min.css";
 import "@notesnook/editor/styles/styles.css";
+import { createRoot } from "react-dom/client";
+import App from "./App";
+import "./index.css";
 
-ReactDOM.render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-  document.getElementById("root")
-);
+const rootElement = document.getElementById("root");
+if (rootElement) {
+  const root = createRoot(rootElement);
+  root.render(<App />);
+}

@@ -56,7 +56,7 @@ export function PdfPreview(props: PdfPreviewProps) {
 
   return (
     <Worker workerUrl="/pdf.worker.min.js">
-      <Flex sx={{ p: 1, justifyContent: "space-between" }}>
+      <Flex sx={{ p: 1, pt: 0, justifyContent: "space-between" }}>
         <Toolbar>
           {(props: ToolbarSlot) => {
             const {
@@ -238,6 +238,10 @@ export function PdfPreview(props: PdfPreviewProps) {
         }}
         onZoom={(e) => {
           if (hash) setPDFConfig(hash, { scale: e.scale });
+        }}
+        transformGetDocumentParams={(options) => {
+          (options as any).isEvalSupported = false;
+          return options;
         }}
         // onDocumentAskPassword={(e) => {
         //   e.verifyPassword("failed");

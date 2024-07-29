@@ -20,12 +20,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import { SettingsGroup } from "./types";
 import { useStore as useSettingStore } from "../../stores/setting-store";
 import { useStore as useUserStore } from "../../stores/user-store";
-import { getPlatform, isDesktop } from "../../utils/platform";
+import { getPlatform } from "../../utils/platform";
 import { db } from "../../common/db";
-import { showPromptDialog } from "../../common/dialog-controller";
 import Config from "../../utils/config";
 import { showToast } from "../../utils/toast";
 import { TrackingDetails } from "./components/tracking-details";
+import { PromptDialog } from "../prompt";
 
 export const PrivacySettings: SettingsGroup[] = [
   {
@@ -66,11 +66,25 @@ What data is collected & when?`,
             type: "toggle",
             isToggled: () => !!useUserStore.getState().user?.marketingConsent,
             toggle: async () => {
-              await db.user?.changeMarketingConsent(
+              await db.user.changeMarketingConsent(
                 !useUserStore.getState().user?.marketingConsent
               );
               await useUserStore.getState().refreshUser();
             }
+          }
+        ]
+      },
+      {
+        key: "hide-note-title",
+        title: "Hide note title",
+        description: "Prevent note title from appearing in tab/window title.",
+        onStateChange: (listener) =>
+          useSettingStore.subscribe((s) => s.hideNoteTitle, listener),
+        components: [
+          {
+            type: "toggle",
+            isToggled: () => useSettingStore.getState().hideNoteTitle,
+            toggle: () => useSettingStore.getState().toggleHideTitle()
           }
         ]
       },
@@ -98,10 +112,30 @@ What data is collected & when?`,
     header: "Advanced",
     settings: [
       {
+        key: "custom-dns",
+        title: "Use custom DNS",
+        description: `Notesnook uses the following DNS providers:
+
+1. Cloudflare DNS
+2. Quad9
+
+This can sometimes bypass local ISP blockages on Notesnook traffic. Disable this if you want the app to use system's DNS settings.`,
+        onStateChange: (listener) =>
+          useSettingStore.subscribe((s) => s.customDns, listener),
+        isHidden: () => !IS_DESKTOP_APP,
+        components: [
+          {
+            type: "toggle",
+            isToggled: () => useSettingStore.getState().customDns,
+            toggle: () => useSettingStore.getState().toggleCustomDns()
+          }
+        ]
+      },
+      {
         key: "custom-cors",
         title: "Custom CORS proxy",
         description:
-          "CORS proxy is required to directly download images from within the Notesnook app. It allows Notesnook to bypass browser restrictions by using a proxy. You can set a custom self-hosted proxy URL to increase your privacy",
+          "CORS proxy is required to directly download images from within the Notesnook app. It allows Notesnook to bypass browser restrictions by using a proxy. You can set a custom self-hosted proxy URL to increase your privacy.",
         onStateChange: (listener) =>
           useSettingStore.subscribe((s) => s.telemetry, listener),
         components: [
@@ -109,7 +143,7 @@ What data is collected & when?`,
             type: "button",
             title: "Change proxy",
             action: async () => {
-              const result = await showPromptDialog({
+              const result = await PromptDialog.show({
                 title: "CORS bypass proxy",
                 description:
                   "You can set a custom proxy URL to increase your privacy.",
@@ -128,6 +162,30 @@ What data is collected & when?`,
               }
             },
             variant: "secondary"
+          }
+        ]
+      },
+      {
+        key: "proxy-config",
+        title: "Proxy",
+        description: `Setup an HTTP/HTTPS/SOCKS proxy.
+        
+For example:
+http://foobar:80
+socks4://proxy.example.com
+http://username:password@foobar:80
+
+To remove the proxy, simply erase everything in the input.`,
+        onStateChange: (listener) =>
+          useSettingStore.subscribe((c) => c.proxyRules, listener),
+        components: [
+          {
+            type: "input",
+            inputType: "text",
+            defaultValue: () => useSettingStore.getState().proxyRules || "",
+            onChange: (value) => {
+              useSettingStore.getState().setProxyRules(value);
+            }
           }
         ]
       }

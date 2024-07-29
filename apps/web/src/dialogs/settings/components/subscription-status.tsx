@@ -23,11 +23,12 @@ import { useCallback, useMemo, useState } from "react";
 import dayjs from "dayjs";
 import { SUBSCRIPTION_STATUS } from "../../../common/constants";
 import { db } from "../../../common/db";
-import { confirm, showBuyDialog } from "../../../common/dialog-controller";
 import { TaskManager } from "../../../common/task-manager";
 import { showToast } from "../../../utils/toast";
 import { Loading } from "../../../components/icons";
 import { Features } from "../../buy-dialog/features";
+import { ConfirmDialog } from "../../confirm";
+import { BuyDialog } from "../../buy-dialog";
 
 const PROVIDER_MAP = {
   0: "Streetwriters",
@@ -39,7 +40,7 @@ export function SubscriptionStatus() {
   const user = useUserStore((store) => store.user);
 
   const [activateTrial, isActivatingTrial] = useAction(async () => {
-    await db.user?.activateTrial();
+    await db.user.activateTrial();
   });
 
   const provider = PROVIDER_MAP[user?.subscription?.provider || 0];
@@ -139,7 +140,7 @@ export function SubscriptionStatus() {
                 <Button
                   variant="secondary"
                   onClick={async () => {
-                    const cancelSubscription = await confirm({
+                    const cancelSubscription = await ConfirmDialog.show({
                       title: "Cancel subscription?",
                       message:
                         "Cancelling your subscription will automatically downgrade you to the Basic plan at the end of your billing period. You will have to resubscribe to continue using the Pro features.",
@@ -151,7 +152,7 @@ export function SubscriptionStatus() {
                         type: "modal",
                         title: "Cancelling your subscription",
                         subtitle: "Please wait...",
-                        action: () => db.subscriptions?.cancel()
+                        action: () => db.subscriptions.cancel()
                       })
                         .catch((e) => showToast("error", e.message))
                         .then(() =>
@@ -169,7 +170,7 @@ export function SubscriptionStatus() {
               <Button
                 variant="secondary"
                 onClick={async () => {
-                  const refundSubscription = await confirm({
+                  const refundSubscription = await ConfirmDialog.show({
                     title: "Request refund?",
                     message:
                       "You will only be issued a refund if you are eligible as per our refund policy. Your account will be immediately downgraded to Basic and your funds will be transferred to your account within 24 hours.",
@@ -181,7 +182,7 @@ export function SubscriptionStatus() {
                       type: "modal",
                       title: "Requesting refund for your subscription",
                       subtitle: "Please wait...",
-                      action: () => db.subscriptions?.refund()
+                      action: () => db.subscriptions.refund()
                     })
                       .catch((e) => showToast("error", e.message))
                       .then(() =>
@@ -196,40 +197,27 @@ export function SubscriptionStatus() {
                 Request a refund
               </Button>
             </>
-          ) : isBasic ? (
-            <>
-              <Button
-                variant="accent"
-                onClick={async () => {
-                  showBuyDialog();
-                }}
-              >
-                Upgrade to Pro
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={activateTrial}
-                sx={{ bg: "background" }}
-              >
-                {isActivatingTrial ? (
-                  <Loading size={16} />
-                ) : (
-                  "Try free for 14 days"
-                )}
-              </Button>
-            </>
-          ) : isTrial ? (
-            <>
-              <Button
-                variant="accent"
-                onClick={async () => {
-                  showBuyDialog();
-                }}
-              >
-                Upgrade to Pro
-              </Button>
-            </>
           ) : null}
+          {!isPro && (
+            <>
+              <Button variant="accent" onClick={() => BuyDialog.show({})}>
+                {isProCancelled ? "Resubscribe" : "Upgrade to Pro"}
+              </Button>
+              {isBasic && (
+                <Button
+                  variant="secondary"
+                  onClick={activateTrial}
+                  sx={{ bg: "background" }}
+                >
+                  {isActivatingTrial ? (
+                    <Loading size={16} />
+                  ) : (
+                    "Try free for 14 days"
+                  )}
+                </Button>
+              )}
+            </>
+          )}
         </Flex>
       </Flex>
       {isBasic ? <Features /> : null}

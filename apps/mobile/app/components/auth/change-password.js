@@ -23,15 +23,18 @@ import { db } from "../../common/database";
 import {
   eSendEvent,
   presentSheet,
-  ToastEvent
+  ToastManager
 } from "../../services/event-manager";
 import { useUserStore } from "../../stores/use-user-store";
-import { eCloseSheet } from "../../utils/events";
+import { eCloseSheet, eOpenRecoveryKeyDialog } from "../../utils/events";
 import DialogHeader from "../dialog/dialog-header";
 import { Button } from "../ui/button";
 import Input from "../ui/input";
 import { Notice } from "../ui/notice";
 import Seperator from "../ui/seperator";
+import { Dialog } from "../dialog";
+import BackupService from "../../services/backup";
+import { sleep } from "../../utils/time";
 
 export const ChangePassword = () => {
   const passwordInputRef = useRef();
@@ -45,7 +48,7 @@ export const ChangePassword = () => {
 
   const changePassword = async () => {
     if (!user?.isEmailConfirmed) {
-      ToastEvent.show({
+      ToastManager.show({
         heading: "Email not confirmed",
         message: "Please confirm your email to change account password",
         type: "error",
@@ -54,7 +57,7 @@ export const ChangePassword = () => {
       return;
     }
     if (error || !oldPassword.current || !password.current) {
-      ToastEvent.show({
+      ToastManager.show({
         heading: "All fields required",
         message: "Fill all the fields and try again.",
         type: "error",
@@ -64,18 +67,23 @@ export const ChangePassword = () => {
     }
     setLoading(true);
     try {
+      const result = await BackupService.run(false, "change-password-dialog");
+      if (!result) throw new Error("Failed to create backup");
+
       await db.user.clearSessions();
       await db.user.changePassword(oldPassword.current, password.current);
-      ToastEvent.show({
+      ToastManager.show({
         heading: "Account password updated",
         type: "success",
         context: "global"
       });
       setLoading(false);
       eSendEvent(eCloseSheet);
+      await sleep(300);
+      eSendEvent(eOpenRecoveryKeyDialog);
     } catch (e) {
       setLoading(false);
-      ToastEvent.show({
+      ToastManager.show({
         heading: "Failed to change password",
         message: e.message,
         type: "error",
@@ -92,6 +100,7 @@ export const ChangePassword = () => {
         padding: 12
       }}
     >
+      <Dialog context="change-password-dialog" />
       <DialogHeader
         title="Change password"
         paragraph="Enter your old and new passwords"
@@ -129,7 +138,14 @@ export const ChangePassword = () => {
       />
 
       <Notice
-        text="Changing password is a non-undoable process. You will be logged out from all your devices. Please make sure you do not close the app while your password is changing and have good internet connection."
+        text={`Changing password is an irreversible process. You will be logged out from all your devices. Please make sure you do not close the app while your password is changing and have good internet connection.`}
+        type="alert"
+      />
+
+      <View style={{ height: 10 }} />
+
+      <Notice
+        text={`Once your password is changed, please make sure to save the new account recovery key.`}
         type="alert"
       />
 

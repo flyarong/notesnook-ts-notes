@@ -20,9 +20,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import React, { useEffect } from "react";
 import { useStore } from "./stores/app-store";
 import { useStore as useUserStore } from "./stores/user-store";
-import { useStore as useThemeStore } from "./stores/theme-store";
-import { useStore as useAttachmentStore } from "./stores/attachment-store";
-import { useStore as useEditorStore } from "./stores/editor-store";
+import { useEditorStore } from "./stores/editor-store";
 import { useStore as useAnnouncementStore } from "./stores/announcement-store";
 import { resetNotices, scheduleBackups } from "./common/notices";
 import { introduceFeatures, showUpgradeReminderDialogs } from "./common";
@@ -31,18 +29,17 @@ import { db } from "./common/db";
 import { EV, EVENTS } from "@notesnook/core/dist/common";
 import { registerKeyMap } from "./common/key-map";
 import { isUserPremium } from "./hooks/use-is-user-premium";
-import {
-  showAnnouncementDialog,
-  showBuyDialog,
-  showFeatureDialog,
-  showOnboardingDialog
-} from "./common/dialog-controller";
-import useSystemTheme from "./hooks/use-system-theme";
 import { updateStatus, removeStatus, getStatus } from "./hooks/use-status";
 import { showToast } from "./utils/toast";
-import { interruptedOnboarding } from "./dialogs/onboarding-dialog";
+import {
+  interruptedOnboarding,
+  OnboardingDialog
+} from "./dialogs/onboarding-dialog";
 import { hashNavigate } from "./navigation";
 import { desktop } from "./common/desktop-bridge";
+import { BuyDialog } from "./dialogs/buy-dialog";
+import { FeatureDialog } from "./dialogs/feature-dialog";
+import { AnnouncementDialog } from "./dialogs/announcement-dialog";
 
 type AppEffectsProps = {
   setShow: (show: boolean) => void;
@@ -53,15 +50,11 @@ export default function AppEffects({ setShow }: AppEffectsProps) {
   const isFocusMode = useStore((store) => store.isFocusMode);
   const initUser = useUserStore((store) => store.init);
   const initStore = useStore((store) => store.init);
-  const initAttachments = useAttachmentStore((store) => store.init);
   const setIsVaultCreated = useStore((store) => store.setIsVaultCreated);
-  const setColorScheme = useThemeStore((store) => store.setColorScheme);
-  const followSystemTheme = useThemeStore((store) => store.followSystemTheme);
   const initEditorStore = useEditorStore((store) => store.init);
   const dialogAnnouncements = useAnnouncementStore(
     (store) => store.dialogAnnouncements
   );
-  const isSystemThemeDark = useSystemTheme();
 
   useEffect(
     function initializeApp() {
@@ -74,7 +67,7 @@ export default function AppEffects({ setShow }: AppEffectsProps) {
             showToast(
               "error",
               "Please upgrade your account to Pro to use this feature.",
-              [{ text: "Upgrade now", onClick: () => showBuyDialog() }]
+              [{ text: "Upgrade now", onClick: () => BuyDialog.show({}) }]
             );
             return { type, result: false };
           }
@@ -82,20 +75,20 @@ export default function AppEffects({ setShow }: AppEffectsProps) {
       );
 
       initStore();
-      initAttachments();
-      refreshNavItems();
       initEditorStore();
 
       (async function () {
+        await refreshNavItems();
         await updateLastSynced();
         if (await initUser()) {
           showUpgradeReminderDialogs();
         }
         await resetNotices();
-        setIsVaultCreated(await db.vault?.exists());
+        setIsVaultCreated(await db.vault.exists());
 
-        await showOnboardingDialog(interruptedOnboarding());
-        await showFeatureDialog("highlights");
+        const onboardingKey = interruptedOnboarding();
+        if (onboardingKey) await OnboardingDialog.show({ type: onboardingKey });
+        await FeatureDialog.show({ featureName: "highlights" });
         await scheduleBackups();
       })();
 
@@ -106,7 +99,6 @@ export default function AppEffects({ setShow }: AppEffectsProps) {
     [
       initEditorStore,
       initStore,
-      initAttachments,
       updateLastSynced,
       refreshNavItems,
       initUser,
@@ -129,7 +121,6 @@ export default function AppEffects({ setShow }: AppEffectsProps) {
     ) {
       const [key, status] = getProcessingStatusFromType(type);
 
-      console.log("handleDownloadUploadProgresss", key, status, current, total);
       if (current === total) {
         removeStatus(key);
       } else {
@@ -230,14 +221,9 @@ export default function AppEffects({ setShow }: AppEffectsProps) {
   useEffect(() => {
     if (!dialogAnnouncements.length || IS_TESTING) return;
     (async () => {
-      await showAnnouncementDialog(dialogAnnouncements[0]);
+      await AnnouncementDialog.show({ announcement: dialogAnnouncements[0] });
     })();
   }, [dialogAnnouncements]);
-
-  useEffect(() => {
-    if (!followSystemTheme) return;
-    setColorScheme(isSystemThemeDark ? "dark" : "light");
-  }, [isSystemThemeDark, followSystemTheme, setColorScheme]);
 
   useEffect(() => {
     const { unsubscribe } =
@@ -245,7 +231,7 @@ export default function AppEffects({ setShow }: AppEffectsProps) {
         onData(itemType) {
           switch (itemType) {
             case "note":
-              hashNavigate("/notes/create", { addNonce: true, replace: true });
+              useEditorStore.getState().newSession();
               break;
             case "notebook":
               hashNavigate("/notebooks/create", { replace: true });

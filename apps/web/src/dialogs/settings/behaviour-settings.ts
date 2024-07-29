@@ -22,6 +22,8 @@ import { SettingsGroup } from "./types";
 import { useStore as useSettingStore } from "../../stores/setting-store";
 import dayjs from "dayjs";
 import { isUserPremium } from "../../hooks/use-is-user-premium";
+import { TimeFormat } from "@notesnook/core/dist/utils/date";
+import { TrashCleanupInterval } from "@notesnook/core";
 
 export const BehaviourSettings: SettingsGroup[] = [
   {
@@ -91,7 +93,7 @@ export const BehaviourSettings: SettingsGroup[] = [
           {
             type: "dropdown",
             onSelectionChanged: (value) =>
-              useSettingStore.getState().setTimeFormat(value),
+              useSettingStore.getState().setTimeFormat(value as TimeFormat),
             selectedOption: () => useSettingStore.getState().timeFormat,
             options: [
               { value: "12-hour", title: "12h" },
@@ -121,13 +123,16 @@ export const BehaviourSettings: SettingsGroup[] = [
             onSelectionChanged: (value) =>
               useSettingStore
                 .getState()
-                .setTrashCleanupInterval(parseInt(value)),
+                .setTrashCleanupInterval(
+                  parseInt(value) as TrashCleanupInterval
+                ),
             selectedOption: () =>
               useSettingStore.getState().trashCleanupInterval.toString(),
             options: [
-              { value: "7", title: "Weekly" },
-              { value: "30", title: "Monthly" },
-              { value: "365", title: "Yearly" },
+              { value: "1", title: "Daily" },
+              { value: "7", title: "7 days" },
+              { value: "30", title: "30 days" },
+              { value: "365", title: "365 days" },
               { value: "-1", title: "Never", premium: true }
             ]
           }
@@ -136,9 +141,10 @@ export const BehaviourSettings: SettingsGroup[] = [
     ]
   },
   {
-    key: "updates",
+    key: "desktop-app",
     section: "behaviour",
-    header: "Updates",
+    header: "Desktop app",
+    isHidden: () => !IS_DESKTOP_APP,
     settings: [
       {
         key: "auto-updates",
@@ -147,6 +153,7 @@ export const BehaviourSettings: SettingsGroup[] = [
           "Automatically download & install updates in the background without prompting first.",
         onStateChange: (listener) =>
           useSettingStore.subscribe((s) => s.autoUpdates, listener),
+        isHidden: () => useSettingStore.getState().isFlatpak,
         components: [
           {
             type: "toggle",

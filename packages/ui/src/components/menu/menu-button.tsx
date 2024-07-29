@@ -54,7 +54,7 @@ export function MenuButton(props: MenuButtonProps) {
       onMouseLeave={onMouseLeave}
     >
       <Button
-        id={`${key}-menu-item`}
+        id={`menu-item-${key}`}
         data-test-id={`menu-button-${key}`}
         key={key}
         ref={itemRef}
@@ -138,13 +138,19 @@ export function MenuButton(props: MenuButtonProps) {
   );
 }
 
-const platform = getPlatform();
 function translateModifier(modifier: string) {
+  const platform = getPlatform();
   if (platform === "Android" || platform === "iOS") return "";
+  const isMacOS = platform === "macOS";
   const parts = modifier.split("-");
   return parts
-    .map((p) => (p === "Mod" ? (platform === "macOS" ? "Cmd" : "Ctrl") : p))
-    .join("+");
+    .map((p) => {
+      if (isMacOS) {
+        return p === "Mod" ? "⌘" : p === "Alt" ? "⌥" : p === "Shift" ? "⇧" : p;
+      }
+      return p === "Mod" ? "Ctrl" : p;
+    })
+    .join(isMacOS ? "" : "+");
 }
 
 function getPlatform() {

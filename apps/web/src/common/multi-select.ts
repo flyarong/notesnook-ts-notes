@@ -17,7 +17,6 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-import { showMultiDeleteConfirmation } from "./dialog-controller";
 import { store as noteStore } from "../stores/note-store";
 import { store as notebookStore } from "../stores/notebook-store";
 import { store as attachmentStore } from "../stores/attachment-store";
@@ -27,30 +26,22 @@ import { showToast } from "../utils/toast";
 import Vault from "./vault";
 import { TaskManager } from "./task-manager";
 import { pluralize } from "@notesnook/common";
+import { ConfirmDialog, showMultiDeleteConfirmation } from "../dialogs/confirm";
 
-type Item = {
-  id: string;
-  locked?: boolean;
-  metadata?: Record<string, unknown>;
-};
+async function moveNotesToTrash(ids: string[], confirm = true) {
+  if (confirm && !(await showMultiDeleteConfirmation(ids.length))) return;
 
-async function moveNotesToTrash(notes: Item[], confirm = true) {
-  const item = notes[0];
-  if (confirm && !(await showMultiDeleteConfirmation(notes.length))) return;
-
-  if (notes.length === 1) {
+  const vault = await db.vaults.default();
+  if (vault) {
+    const lockedIds = await db.relations.from(vault, "note").get();
     if (
-      item.locked &&
-      !(await Vault.unlockNote(item.id, "unlock_and_delete_note"))
+      ids.some((id) => lockedIds.findIndex((s) => s.toId === id) > -1) &&
+      !(await Vault.unlockVault())
     )
       return;
-    item.locked = false;
   }
 
-  const items = notes.map((item) => {
-    if (item.locked || db.monographs?.isPublished(item.id)) return 0;
-    return item.id;
-  });
+  const items = ids.filter((id) => !db.monographs.isPublished(id));
 
   await TaskManager.startTask({
     type: "status",
@@ -66,11 +57,10 @@ async function moveNotesToTrash(notes: Item[], confirm = true) {
   showToast("success", `${pluralize(items.length, "note")} moved to trash`);
 }
 
-async function moveNotebooksToTrash(notebooks: Item[]) {
-  const item = notebooks[0];
-  const isMultiselect = notebooks.length > 1;
+async function moveNotebooksToTrash(ids: string[]) {
+  const isMultiselect = ids.length > 1;
   if (isMultiselect) {
-    if (!(await showMultiDeleteConfirmation(notebooks.length))) return;
+    if (!(await showMultiDeleteConfirmation(ids.length))) return;
   }
 
   await TaskManager.startTask({
@@ -78,41 +68,24 @@ async function moveNotebooksToTrash(notebooks: Item[]) {
     id: "deleteNotebooks",
     action: async (report) => {
       report({
-        text: `Deleting ${pluralize(notebooks.length, "notebook")}...`
+        text: `Deleting ${pluralize(ids.length, "notebook")}...`
       });
-      await notebookStore.delete(...notebooks.map((i) => i.id));
+      await notebookStore.delete(...ids);
     }
   });
 
-  showToast(
-    "success",
-    `${pluralize(notebooks.length, "notebook")} moved to trash`
-  );
+  showToast("success", `${pluralize(ids.length, "notebook")} moved to trash`);
 }
 
-async function deleteTopics(notebookId: string, topics: Item[]) {
-  await TaskManager.startTask({
-    type: "status",
-    id: "deleteTopics",
-    action: async (report) => {
-      report({
-        text: `Deleting ${pluralize(topics.length, "topic")}...`
-      });
-      await db.notebooks
-        ?.notebook(notebookId)
-        .topics.delete(...topics.map((t) => t.id));
-      notebookStore.setSelectedNotebook(notebookId);
-      noteStore.refresh();
-    }
-  });
-  showToast("success", `${pluralize(topics.length, "topic")} deleted`);
-}
-
-async function deleteAttachments(attachments: Item[]) {
+async function deleteAttachments(ids: string[]) {
   if (
-    !window.confirm(
-      "Are you sure you want to permanently delete these attachments? This action is IRREVERSIBLE."
-    )
+    !(await ConfirmDialog.show({
+      title: "Are you sure?",
+      message:
+        "Are you sure you want to permanently delete these attachments? This action is IRREVERSIBLE.",
+      negativeButtonText: "No",
+      positiveButtonText: "Yes"
+    }))
   )
     return;
 
@@ -120,27 +93,27 @@ async function deleteAttachments(attachments: Item[]) {
     type: "status",
     id: "deleteAttachments",
     action: async (report) => {
-      for (let i = 0; i < attachments.length; ++i) {
-        const attachment = attachments[i];
+      for (let i = 0; i < ids.length; ++i) {
+        const id = ids[i];
+        const attachment = await db.attachments.attachment(id);
+        if (!attachment) continue;
+
         report({
-          text: `Deleting ${pluralize(attachments.length, "attachment")}...`,
+          text: `Deleting ${pluralize(ids.length, "attachment")}...`,
           current: i,
-          total: attachments.length
+          total: ids.length
         });
-        await attachmentStore.permanentDelete(attachment.metadata?.hash);
+        await attachmentStore.permanentDelete(attachment);
       }
     }
   });
-  showToast(
-    "success",
-    `${pluralize(attachments.length, "attachment")} deleted`
-  );
+  showToast("success", `${pluralize(ids.length, "attachment")} deleted`);
 }
 
-async function moveRemindersToTrash(reminders: Item[]) {
-  const isMultiselect = reminders.length > 1;
+async function moveRemindersToTrash(ids: string[]) {
+  const isMultiselect = ids.length > 1;
   if (isMultiselect) {
-    if (!(await showMultiDeleteConfirmation(reminders.length))) return;
+    if (!(await showMultiDeleteConfirmation(ids.length))) return;
   }
 
   await TaskManager.startTask({
@@ -148,19 +121,18 @@ async function moveRemindersToTrash(reminders: Item[]) {
     id: "deleteReminders",
     action: async (report) => {
       report({
-        text: `Deleting ${pluralize(reminders.length, "reminder")}...`
+        text: `Deleting ${pluralize(ids.length, "reminder")}...`
       });
-      await reminderStore.delete(...reminders.map((i) => i.id));
+      await reminderStore.delete(...ids);
     }
   });
 
-  showToast("success", `${pluralize(reminders.length, "reminder")} deleted.`);
+  showToast("success", `${pluralize(ids.length, "reminder")} deleted.`);
 }
 
 export const Multiselect = {
   moveRemindersToTrash,
   moveNotebooksToTrash,
   moveNotesToTrash,
-  deleteTopics,
   deleteAttachments
 };

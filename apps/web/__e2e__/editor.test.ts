@@ -35,29 +35,10 @@ test("focus mode", async ({ page }) => {
   ).toMatchSnapshot("focus-mode.jpg", { maxDiffPixelRatio: 0.01 });
 });
 
-test("switch theme in focus mode", async ({ page }) => {
-  const app = new AppModel(page);
-  await app.goto();
-  const notes = await app.goToNotes();
-  await notes.createNote(NOTE);
-  await notes.editor.enterFocusMode();
+test("full screen in focus mode", async ({ page, headless }) => {
+  // fullscreen doesn't work in headless mode
+  if (headless) return;
 
-  await notes.editor.enterDarkMode();
-
-  expect(await notes.editor.isDarkMode()).toBeTruthy();
-  expect(
-    await page.screenshot({ fullPage: true, quality: 100, type: "jpeg" })
-  ).toMatchSnapshot("dark-focus-mode.jpg", { maxDiffPixelRatio: 0.01 });
-
-  await notes.editor.exitDarkMode();
-
-  expect(await notes.editor.isDarkMode()).toBeFalsy();
-  expect(
-    await page.screenshot({ fullPage: true, quality: 100, type: "jpeg" })
-  ).toMatchSnapshot("light-focus-mode.jpg", { maxDiffPixelRatio: 0.01 });
-});
-
-test("full screen in focus mode", async ({ page }) => {
   const app = new AppModel(page);
   await app.goto();
   const notes = await app.goToNotes();

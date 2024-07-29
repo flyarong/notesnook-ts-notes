@@ -23,9 +23,9 @@ import { Cross, Check, Loading } from "../../components/icons";
 import { useStore as useUserStore } from "../../stores/user-store";
 import { useStore as useThemeStore } from "../../stores/theme-store";
 import { useTheme } from "@emotion/react";
-import { ReactComponent as Rocket } from "../../assets/rocket.svg";
-import { ReactComponent as WorkAnywhere } from "../../assets/workanywhere.svg";
-import { ReactComponent as WorkLate } from "../../assets/worklate.svg";
+import Rocket from "../../assets/rocket.svg?react";
+import WorkAnywhere from "../../assets/workanywhere.svg?react";
+import WorkLate from "../../assets/worklate.svg?react";
 import Field from "../../components/field";
 import { hardNavigate } from "../../navigation";
 import { Features } from "./features";
@@ -42,18 +42,19 @@ import { Theme } from "@notesnook/theme";
 import { isMacStoreApp } from "../../utils/platform";
 import { isUserSubscribed } from "../../hooks/use-is-user-premium";
 import { SUBSCRIPTION_STATUS } from "../../common/constants";
-
-import { alpha } from "@theme-ui/color";
 import BaseDialog from "../../components/dialog";
 import { ScopedThemeProvider } from "../../components/theme-provider";
+import { User } from "@notesnook/core";
+import { BaseDialogProps, DialogManager } from "../../common/dialog-manager";
 
-type BuyDialogProps = {
+type BuyDialogProps = BaseDialogProps<false> & {
   couponCode?: string;
-  plan?: "monthly" | "yearly";
-  onClose: () => void;
+  plan?: "monthly" | "yearly" | "education";
 };
 
-export function BuyDialog(props: BuyDialogProps) {
+export const BuyDialog = DialogManager.register(function BuyDialog(
+  props: BuyDialogProps
+) {
   const { onClose, couponCode, plan } = props;
   const theme = useTheme() as Theme;
 
@@ -74,7 +75,7 @@ export function BuyDialog(props: BuyDialogProps) {
     <BaseDialog
       isOpen={true}
       width={"868px"}
-      onClose={() => props.onClose()}
+      onClose={() => props.onClose(false)}
       noScroll
       sx={{
         bg: "transparent",
@@ -108,13 +109,13 @@ export function BuyDialog(props: BuyDialogProps) {
             py: 50
           }}
         >
-          <SideBar onClose={onClose} initialPlan={plan} />
+          <SideBar onClose={() => onClose(false)} initialPlan={plan} />
         </ScopedThemeProvider>
         <Details />
       </Flex>
     </BaseDialog>
   );
-}
+});
 
 type SideBarProps = {
   initialPlan?: Period;
@@ -178,7 +179,7 @@ function SideBar(props: SideBarProps) {
               report({
                 text: "Activating trial"
               });
-              return db.user?.activateTrial();
+              return db.user.activateTrial();
             }
           });
           if (result) onClose();
@@ -491,7 +492,7 @@ function SelectedPlan(props: SelectedPlanProps) {
             }
             autoFocus={pricingInfo.invalidCoupon}
             disabled={!!pricingInfo?.coupon}
-            onKeyUp={(e: KeyboardEvent) => {
+            onKeyUp={(e) => {
               if (e.code === "Enter") applyCoupon();
             }}
             action={{

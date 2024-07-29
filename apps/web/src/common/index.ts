@@ -17,16 +17,12 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-import {
-  showFeatureDialog,
-  showPasswordDialog,
-  showReminderDialog
-} from "./dialog-controller";
 import Config from "../utils/config";
 import { hashNavigate, getCurrentHash } from "../navigation";
 import { db } from "./db";
 import { sanitizeFilename } from "@notesnook/common";
-import { store as userstore } from "../stores/user-store";
+import { useStore as useUserStore } from "../stores/user-store";
+import { useStore as useSettingStore } from "../stores/setting-store";
 import { showToast } from "../utils/toast";
 import { SUBSCRIPTION_STATUS } from "./constants";
 import { readFile, showFilePicker } from "../utils/file-picker";
@@ -34,25 +30,26 @@ import { logger } from "../utils/logger";
 import { PATHS } from "@notesnook/desktop";
 import { TaskManager } from "./task-manager";
 import { EVENTS } from "@notesnook/core/dist/common";
-import { getFormattedDate } from "@notesnook/common";
 import { createWritableStream } from "./desktop-bridge";
-import { ZipStream } from "../utils/streams/zip-stream";
-import { FeatureKeys } from "../dialogs/feature-dialog";
-import { Entry, Reader } from "../utils/zip-reader";
+import { createZipStream } from "../utils/streams/zip-stream";
+import { FeatureDialog, FeatureKeys } from "../dialogs/feature-dialog";
+import { ZipEntry, createUnzipIterator } from "../utils/streams/unzip-stream";
+import { User } from "@notesnook/core";
+import { LegacyBackupFile } from "@notesnook/core";
+import { useEditorStore } from "../stores/editor-store";
+import { formatDate } from "@notesnook/core/dist/utils/date";
+import { showPasswordDialog } from "../dialogs/password-dialog";
+import { BackupPasswordDialog } from "../dialogs/backup-password-dialog";
+import { ReminderDialog } from "../dialogs/reminder-dialog";
 
 export const CREATE_BUTTON_MAP = {
   notes: {
     title: "Add a note",
-    onClick: () =>
-      hashNavigate("/notes/create", { addNonce: true, replace: true })
+    onClick: () => useEditorStore.getState().newSession()
   },
   notebooks: {
     title: "Create a notebook",
     onClick: () => hashNavigate("/notebooks/create", { replace: true })
-  },
-  topics: {
-    title: "Create a topic",
-    onClick: () => hashNavigate(`/topics/create`, { replace: true })
   },
   tags: {
     title: "Create a tag",
@@ -70,19 +67,40 @@ export async function introduceFeatures() {
   const features: FeatureKeys[] = [];
   for (const feature of features) {
     if (!Config.get(`feature:${feature}`)) {
-      await showFeatureDialog(feature);
+      await FeatureDialog.show({ featureName: feature });
     }
   }
 }
 
 export const DEFAULT_CONTEXT = { colors: [], tags: [], notebook: {} };
 
-export async function createBackup() {
-  const encryptBackups =
-    userstore.get().isLoggedIn && Config.get("encryptBackups", false);
+export async function createBackup(
+  options: {
+    rescueMode?: boolean;
+    noVerify?: boolean;
+  } = {}
+) {
+  const { rescueMode, noVerify } = options;
+  const { isLoggedIn } = useUserStore.getState();
+  const { encryptBackups, toggleEncryptBackups } = useSettingStore.getState();
+  if (!isLoggedIn && encryptBackups) toggleEncryptBackups();
+
+  const verified =
+    rescueMode || encryptBackups || noVerify || (await verifyAccount());
+  if (!verified) {
+    showToast("error", "Could not create a backup: user verification failed.");
+    return false;
+  }
+
+  const encryptedBackups = !rescueMode && isLoggedIn && encryptBackups;
 
   const filename = sanitizeFilename(
-    `notesnook-backup-${getFormattedDate(Date.now())}`
+    `${formatDate(Date.now(), {
+      type: "date-time",
+      dateFormat: "YYYY-MM-DD",
+      timeFormat: "24-hour"
+    })}-${new Date().getSeconds()}`,
+    { replacement: "-" }
   );
   const directory = Config.get("backupStorageLocation", PATHS.backupsDirectory);
   const ext = "nnbackupz";
@@ -101,7 +119,7 @@ export async function createBackup() {
       await new ReadableStream({
         start() {},
         async pull(controller) {
-          for await (const file of db.backup!.export("web", encryptBackups)) {
+          for await (const file of db.backup!.export("web", encryptedBackups)) {
             report({
               text: `Saving chunk ${file.path}`
             });
@@ -113,7 +131,7 @@ export async function createBackup() {
           controller.close();
         }
       })
-        .pipeThrough(new ZipStream())
+        .pipeThrough(createZipStream())
         .pipeTo(writeStream);
     }
   });
@@ -125,11 +143,13 @@ export async function createBackup() {
     console.error(error);
   } else {
     showToast("success", `Backup saved at ${filePath}.`);
+    return true;
   }
+  return false;
 }
 
 export async function selectBackupFile() {
-  const file = await showFilePicker({
+  const [file] = await showFilePicker({
     acceptedFileTypes: ".nnbackup,.nnbackupz"
   });
   if (!file) return;
@@ -138,8 +158,9 @@ export async function selectBackupFile() {
 
 export async function importBackup() {
   const backupFile = await selectBackupFile();
-  if (!backupFile) return;
+  if (!backupFile) return false;
   await restoreBackupFile(backupFile);
+  return true;
 }
 
 export async function restoreBackupFile(backupFile: File) {
@@ -149,10 +170,12 @@ export async function restoreBackupFile(backupFile: File) {
     const backup = JSON.parse(await readFile(backupFile));
 
     if (backup.data.iv && backup.data.salt) {
-      await showPasswordDialog("ask_backup_password", async ({ password }) => {
-        if (!password) return false;
-        const error = await restoreWithProgress(backup, password);
-        return !error;
+      await BackupPasswordDialog.show({
+        validate: async ({ password, key }) => {
+          if (!password && !key) return false;
+          const error = await restoreWithProgress(backup, password, key);
+          return !error;
+        }
       });
     } else {
       await restoreWithProgress(backup);
@@ -165,45 +188,51 @@ export async function restoreBackupFile(backupFile: File) {
       type: "modal",
       action: async (report) => {
         let cachedPassword: string | undefined = undefined;
-        const { read, totalFiles } = await Reader(backupFile);
-        const entries: Entry[] = [];
+        let cachedKey: string | undefined = undefined;
+        // const { read, totalFiles } = await Reader(backupFile);
+        const entries: ZipEntry[] = [];
         let filesProcessed = 0;
 
         let isValid = false;
-        for await (const entry of read()) {
+        for await (const entry of createUnzipIterator(backupFile)) {
           if (entry.name === ".nnbackup") {
             isValid = true;
             continue;
           }
           entries.push(entry);
         }
-        if (!isValid) throw new Error("Invalid backup.");
+        if (!isValid)
+          console.warn(
+            "The backup file does not contain the verification .nnbackup file."
+          );
 
-        for (const entry of entries) {
-          const backup = JSON.parse(await entry.text());
-          if (backup.encrypted) {
-            if (!cachedPassword) {
-              const result = await showPasswordDialog(
-                "ask_backup_password",
-                async ({ password }) => {
-                  if (!password) return false;
-                  await db.backup?.import(backup, password);
-                  cachedPassword = password;
-                  return true;
-                }
-              );
-              if (!result) break;
-            } else await db.backup?.import(backup, cachedPassword);
-          } else {
-            await db.backup?.import(backup, null);
+        await db.transaction(async () => {
+          for (const entry of entries) {
+            const backup = JSON.parse(await entry.text());
+            if (backup.encrypted) {
+              if (!cachedPassword && !cachedKey) {
+                const result = await BackupPasswordDialog.show({
+                  validate: async ({ password, key }) => {
+                    if (!password && !key) return false;
+                    await db.backup?.import(backup, password, key);
+                    cachedPassword = password;
+                    cachedKey = key;
+                    return true;
+                  }
+                });
+                if (!result) break;
+              } else await db.backup?.import(backup, cachedPassword, cachedKey);
+            } else {
+              await db.backup?.import(backup);
+            }
+
+            report({
+              text: `Processed ${entry.name}`,
+              current: filesProcessed++,
+              total: entries.length
+            });
           }
-
-          report({
-            total: totalFiles,
-            text: `Processed ${entry.name}`,
-            current: filesProcessed++
-          });
-        }
+        });
         await db.initCollections();
       }
     });
@@ -215,8 +244,9 @@ export async function restoreBackupFile(backupFile: File) {
 }
 
 async function restoreWithProgress(
-  backup: Record<string, unknown>,
-  password?: string
+  backup: LegacyBackupFile,
+  password?: string,
+  key?: string
 ) {
   return await TaskManager.startTask<Error | void>({
     title: "Restoring backup",
@@ -243,15 +273,25 @@ async function restoreWithProgress(
       );
 
       report({ text: `Restoring...` });
-      return restore(backup, password);
+      return restore(backup, password, key);
     }
   });
 }
 
 export async function verifyAccount() {
   if (!(await db.user?.getUser())) return true;
-  return showPasswordDialog("verify_account", ({ password }) => {
-    return db.user?.verifyPassword(password) || false;
+  return await showPasswordDialog({
+    title: "Verify it's you",
+    subtitle: "Enter your account password to proceed.",
+    inputs: {
+      password: {
+        label: "Password",
+        autoComplete: "current-password"
+      }
+    },
+    validate: async ({ password }) => {
+      return !!password && (await db.user?.verifyPassword(password));
+    }
   });
 }
 
@@ -270,22 +310,26 @@ export function totalSubscriptionConsumed(user: User) {
 export async function showUpgradeReminderDialogs() {
   if (IS_TESTING) return;
 
-  const user = userstore.get().user;
+  const user = useUserStore.getState().user;
   if (!user || !user.subscription || user.subscription?.expiry === 0) return;
 
   const consumed = totalSubscriptionConsumed(user);
-  const isTrial = user?.subscription?.type === SUBSCRIPTION_STATUS.TRIAL;
-  const isBasic = user?.subscription?.type === SUBSCRIPTION_STATUS.BASIC;
+  const isTrial = user.subscription?.type === SUBSCRIPTION_STATUS.TRIAL;
+  const isBasic = user.subscription?.type === SUBSCRIPTION_STATUS.BASIC;
   if (isBasic && consumed >= 100) {
-    await showReminderDialog("trialexpired");
+    await ReminderDialog.show({ reminderKey: "trialexpired" });
   } else if (isTrial && consumed >= 75) {
-    await showReminderDialog("trialexpiring");
+    await ReminderDialog.show({ reminderKey: "trialexpiring" });
   }
 }
 
-async function restore(backup: Record<string, unknown>, password?: string) {
+async function restore(
+  backup: LegacyBackupFile,
+  password?: string,
+  key?: string
+) {
   try {
-    await db.backup?.import(backup, password);
+    await db.backup?.import(backup, password, key);
     showToast("success", "Backup restored!");
   } catch (e) {
     logger.error(e as Error, "Could not restore the backup");

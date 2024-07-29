@@ -24,7 +24,6 @@ import { configureAutoUpdater } from "./utils/autoupdater";
 import { getBackgroundColor, getTheme, setTheme } from "./utils/theme";
 import { setupMenu } from "./utils/menu";
 import { WindowState } from "./utils/window-state";
-import { AutoLaunch } from "./utils/autolaunch";
 import { setupJumplist } from "./utils/jumplist";
 import { setupTray } from "./utils/tray";
 import { CLIOptions, parseArguments } from "./cli";
@@ -35,6 +34,8 @@ import { config } from "./utils/config";
 import path from "path";
 import { bringToFront } from "./utils/bring-to-front";
 import { bridge } from "./api/bridge";
+import { setupDesktopIntegration } from "./utils/desktop-integration";
+import { disableCustomDns, enableCustomDns } from "./utils/custom-dns";
 
 // only run a single instance
 if (!MAC_APP_STORE && !app.requestSingleInstanceLock()) {
@@ -77,15 +78,33 @@ async function createWindow() {
     darkTheme: getTheme() === "dark",
     backgroundColor: getBackgroundColor(),
     opacity: 0,
-    autoHideMenuBar: true,
+    autoHideMenuBar: false,
     icon: AssetManager.appIcon({
       size: 512,
       format: process.platform === "win32" ? "ico" : "png"
     }),
+
+    ...(config.desktopSettings.nativeTitlebar
+      ? {}
+      : {
+          titleBarStyle: "hidden",
+          frame: process.platform === "win32" || process.platform === "darwin",
+          titleBarOverlay: {
+            height: 37,
+            color: "#00000000",
+            symbolColor: config.windowControlsIconColor
+          },
+          trafficLightPosition: {
+            x: 16,
+            y: 12
+          }
+        }),
+
     webPreferences: {
       zoomFactor: config.zoomFactor,
       nodeIntegration: true,
       contextIsolation: false,
+      nodeIntegrationInWorker: true,
       spellcheck: config.isSpellCheckerEnabled,
       preload: __dirname + "/preload.js"
     }
@@ -93,6 +112,7 @@ async function createWindow() {
 
   createIPCHandler({ router, windows: [mainWindow] });
   globalThis.window = mainWindow;
+  mainWindow.setMenuBarVisibility(false);
   mainWindowState.manage(mainWindow);
 
   if (cliOptions.hidden && !config.desktopSettings.minimizeToSystemTray)
@@ -106,11 +126,12 @@ async function createWindow() {
   }
 
   await AssetManager.loadIcons();
-  setupDesktopIntegration();
+  setupDesktopIntegration(config.desktopSettings);
 
   mainWindow.webContents.session.setSpellCheckerDictionaryDownloadURL(
     "http://dictionaries.notesnook.com/"
   );
+  mainWindow.webContents.session.setProxy({ proxyRules: config.proxyRules });
 
   mainWindow.once("closed", () => {
     globalThis.window = null;
@@ -120,7 +141,7 @@ async function createWindow() {
   setupJumplist();
 
   if (isDevelopment())
-    mainWindow.webContents.openDevTools({ mode: "right", activate: true });
+    mainWindow.webContents.openDevTools({ mode: "bottom", activate: true });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
@@ -135,6 +156,9 @@ async function createWindow() {
 
 app.once("ready", async () => {
   console.info("App ready. Opening window.");
+
+  if (config.customDns) enableCustomDns();
+  else disableCustomDns();
 
   if (!isDevelopment()) registerProtocol();
   await createWindow();
@@ -175,50 +199,4 @@ function createURL(options: CLIOptions, path = "/") {
     url.hash = `/notebooks/${options.notebook}`;
 
   return url;
-}
-
-function setupDesktopIntegration() {
-  const desktopIntegration = config.desktopSettings;
-
-  if (
-    desktopIntegration.closeToSystemTray ||
-    desktopIntegration.minimizeToSystemTray
-  ) {
-    setupTray();
-  }
-
-  // when close to system tray is enabled, it becomes nigh impossible
-  // to "quit" the app. This is necessary in order to fix that.
-  if (desktopIntegration.closeToSystemTray) {
-    app.on("before-quit", () => app.exit(0));
-  }
-
-  globalThis.window?.on("close", (e) => {
-    if (config.desktopSettings.closeToSystemTray) {
-      e.preventDefault();
-      if (process.platform == "darwin") {
-        // on macOS window cannot be minimized/hidden if it is already fullscreen
-        // so we just close it.
-        if (globalThis.window?.isFullScreen()) app.exit(0);
-        else app.hide();
-      } else {
-        globalThis.window?.minimize();
-        globalThis.window?.hide();
-      }
-    }
-  });
-
-  globalThis.window?.on("minimize", () => {
-    if (config.desktopSettings.minimizeToSystemTray) {
-      if (process.platform == "darwin") {
-        app.hide();
-      } else {
-        globalThis.window?.hide();
-      }
-    }
-  });
-
-  if (desktopIntegration.autoStart) {
-    AutoLaunch.enable(!!desktopIntegration.startMinimized);
-  }
 }

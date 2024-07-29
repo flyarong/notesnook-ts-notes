@@ -25,6 +25,7 @@ import {
   getTextDirection,
   TextDirections
 } from "../../extensions/text-direction";
+import { CodeBlock } from "../../extensions/code-block";
 
 type TextDirectionToolProps = ToolProps & {
   direction: TextDirections;
@@ -37,12 +38,9 @@ function TextDirectionTool(props: TextDirectionToolProps) {
     <ToolButton
       {...toolProps}
       onClick={() =>
-        editor.current
-          ?.chain()
-          .focus()
-          .setTextDirection(directionRef.current)
-          .run()
+        editor.chain().focus().setTextDirection(directionRef.current).run()
       }
+      disabled={editor.isActive(CodeBlock.name)}
       toggled={false}
     />
   );

@@ -19,7 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import { useRef, useState } from "react";
 import { db } from "../../common/database";
-import { eSendEvent, ToastEvent } from "../../services/event-manager";
+import { eSendEvent, ToastManager } from "../../services/event-manager";
 import { clearMessage } from "../../services/message";
 import PremiumService from "../../services/premium";
 import SettingsService from "../../services/settings";
@@ -33,7 +33,7 @@ export const LoginSteps = {
   passwordAuth: 3
 };
 
-export const useLogin = (onFinishLogin) => {
+export const useLogin = (onFinishLogin, sessionExpired = false) => {
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
   const setUser = useUserStore((state) => state.setUser);
@@ -48,7 +48,7 @@ export const useLogin = (onFinishLogin) => {
       (!password.current && step === LoginSteps.passwordAuth) ||
       (!email.current && step === LoginSteps.emailAuth)
     ) {
-      ToastEvent.show({
+      ToastManager.show({
         heading: "All fields required",
         message: "Fill all the fields and try again",
         type: "error",
@@ -69,6 +69,7 @@ export const useLogin = (onFinishLogin) => {
       switch (step) {
         case LoginSteps.emailAuth: {
           const mfaInfo = await db.user.authenticateEmail(email.current);
+          console.log("email auth", mfaInfo);
           if (mfaInfo) {
             TwoFactorVerification.present(async (mfa, callback) => {
               try {
@@ -101,7 +102,12 @@ export const useLogin = (onFinishLogin) => {
           break;
         }
         case LoginSteps.passwordAuth: {
-          await db.user.authenticatePassword(email.current, password.current);
+          await db.user.authenticatePassword(
+            email.current,
+            password.current,
+            null,
+            sessionExpired
+          );
           finishLogin();
           break;
         }
@@ -115,7 +121,7 @@ export const useLogin = (onFinishLogin) => {
   const finishWithError = async (e) => {
     if (e.message === "invalid_grant") setStep(LoginSteps.emailAuth);
     setLoading(false);
-    ToastEvent.show({
+    ToastManager.show({
       heading: "Login failed",
       message: e.message,
       type: "error",
@@ -129,7 +135,7 @@ export const useLogin = (onFinishLogin) => {
     PremiumService.setPremiumStatus();
     setUser(user);
     clearMessage();
-    ToastEvent.show({
+    ToastManager.show({
       heading: "Login successful",
       message: `Logged in as ${user.email}`,
       type: "success",

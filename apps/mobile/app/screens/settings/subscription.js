@@ -24,7 +24,7 @@ import { usePricing } from "../../hooks/use-pricing";
 import {
   eSendEvent,
   presentSheet,
-  ToastEvent
+  ToastManager
 } from "../../services/event-manager";
 import PremiumService from "../../services/premium";
 import { useUserStore } from "../../stores/use-user-store";
@@ -41,6 +41,9 @@ export const Subscription = () => {
   const isNotPro =
     user?.subscription?.type !== SUBSCRIPTION_STATUS.PREMIUM &&
     user?.subscription?.type !== SUBSCRIPTION_STATUS.BETA;
+
+  const hasCancelledPremium =
+    SUBSCRIPTION_STATUS.PREMIUM_CANCELLED === user?.subscription?.type;
 
   const subscriptionProviderInfo =
     SUBSCRIPTION_PROVIDER[user?.subscription?.provider];
@@ -63,12 +66,9 @@ export const Subscription = () => {
       return;
     }
 
-    if (
-      user?.subscription?.type === SUBSCRIPTION_STATUS.PREMIUM_CANCELLED &&
-      Platform.OS === "android"
-    ) {
+    if (hasCancelledPremium && Platform.OS === "android") {
       if (user.subscription?.provider === 3) {
-        ToastEvent.show({
+        ToastManager.show({
           heading: "Subscribed on web",
           message: "Open your web browser to manage your subscription.",
           type: "success"
@@ -88,6 +88,13 @@ export const Subscription = () => {
     }
   };
 
+  function getPrice() {
+    return Platform.OS === "android"
+      ? monthlyPlan?.product?.subscriptionOfferDetails[0].pricingPhases
+          .pricingPhaseList?.[0]?.formattedPrice
+      : monthlyPlan?.product?.localizedPrice;
+  }
+
   return (
     <View>
       {isNotPro ? (
@@ -104,22 +111,16 @@ export const Subscription = () => {
           title={
             !user?.isEmailConfirmed
               ? "Confirm your email"
-              : user.subscription?.provider === 3 &&
-                user.subscription?.type ===
-                  SUBSCRIPTION_STATUS.PREMIUM_CANCELLED
+              : user.subscription?.provider === 3 && hasCancelledPremium
               ? "Manage subscription from desktop app"
-              : user.subscription?.type ===
-                  SUBSCRIPTION_STATUS.PREMIUM_CANCELLED &&
+              : hasCancelledPremium &&
                 Platform.OS === "android" &&
                 Config.GITHUB_RELEASE !== "true"
               ? "Resubscribe from Google Playstore"
-              : user.subscription?.type === SUBSCRIPTION_STATUS.PREMIUM_EXPIRED
-              ? `Resubscribe to Pro (${
-                  monthlyPlan?.product?.localizedPrice || "$4.49"
-                } / mo)`
-              : `Get Pro (${
-                  monthlyPlan?.product?.localizedPrice || "$4.49"
-                } / mo)`
+              : user.subscription?.type ===
+                  SUBSCRIPTION_STATUS.PREMIUM_EXPIRED || hasCancelledPremium
+              ? `Resubscribe to Pro (${getPrice() || "$4.49"} / mo)`
+              : `Get Pro (${getPrice() || "$4.49"} / mo)`
           }
         />
       ) : null}
@@ -141,7 +142,7 @@ export const Subscription = () => {
           }}
           fontSize={SIZE.sm}
           height={30}
-          type="grayAccent"
+          type="secondaryAccented"
         />
       ) : null}
     </View>

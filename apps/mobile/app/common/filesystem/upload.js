@@ -25,6 +25,8 @@ import { isImage, isDocument } from "@notesnook/core/dist/utils/filename";
 import { Platform } from "react-native";
 import { IOS_APPGROUPID } from "../../utils/constants";
 import { createCacheDir } from "./io";
+import { getUploadedFileSize } from "./download";
+import { ToastManager } from "../../services/event-manager";
 
 export async function uploadFile(filename, data, cancelToken) {
   if (!data) return false;
@@ -33,13 +35,31 @@ export async function uploadFile(filename, data, cancelToken) {
   DatabaseLogger.info(`Preparing to upload file: ${filename}`);
 
   try {
+    const uploadedFileSize = await getUploadedFileSize(filename);
+    if (uploadedFileSize === -1) {
+      DatabaseLogger.log("Upload verification failed.");
+      return false;
+    }
+
+    const isUploaded = uploadedFileSize !== 0;
+    if (isUploaded) {
+      DatabaseLogger.log(`File ${filename} is already uploaded.`);
+      return true;
+    }
+
     let res = await fetch(url, {
       method: "PUT",
       headers
     });
-    if (!res.ok) throw new Error(`${res.status}: Unable to resolve upload url`);
-    const uploadUrl = await res.text();
-    if (!uploadUrl) throw new Error("Unable to resolve attachment upload url");
+
+    const uploadUrl = res.ok ? await res.text() : await res.json();
+
+    if (typeof uploadUrl !== "string") {
+      throw new Error(
+        uploadUrl.error || "Unable to resolve attachment upload url."
+      );
+    }
+
     let uploadFilePath = `${cacheDir}/${filename}`;
 
     const iosAppGroup =
@@ -50,7 +70,15 @@ export async function uploadFile(filename, data, cancelToken) {
     let exists = await RNFetchBlob.fs.exists(uploadFilePath);
     if (!exists && Platform.OS === "ios") {
       uploadFilePath = appGroupPath;
+      exists = await RNFetchBlob.fs.exists(uploadFilePath);
     }
+
+    if (!exists) {
+      throw new Error(
+        `Trying to upload file at path ${uploadFilePath} that doest not exist.`
+      );
+    }
+
     DatabaseLogger.info(`Starting upload: ${filename}`);
 
     let request = RNFetchBlob.config({
@@ -87,12 +115,9 @@ export async function uploadFile(filename, data, cancelToken) {
       DatabaseLogger.info(
         `File upload status: ${filename}, ${status}, ${text}`
       );
-      let attachment = db.attachments.attachment(filename);
+      let attachment = await db.attachments.attachment(filename);
       if (!attachment) return result;
-      if (
-        !isImage(attachment.metadata.type) &&
-        !isDocument(attachment.metadata?.type)
-      ) {
+      if (!isImage(attachment.mimeType) && !isDocument(attachment.mimeType)) {
         RNFetchBlob.fs.unlink(`${cacheDir}/${filename}`).catch(console.log);
       }
     } else {
@@ -107,8 +132,10 @@ export async function uploadFile(filename, data, cancelToken) {
     return result;
   } catch (e) {
     useAttachmentStore.getState().remove(filename);
-    DatabaseLogger.info(`File upload error: ${filename}, ${e}`);
-    DatabaseLogger.error(e);
+    ToastManager.error(e, "File upload failed");
+    DatabaseLogger.error(e, "File upload failed", {
+      filename
+    });
     return false;
   }
 }

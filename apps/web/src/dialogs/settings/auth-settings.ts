@@ -19,14 +19,13 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import { SettingsGroup } from "./types";
 import { useStore as useUserStore } from "../../stores/user-store";
-import { verifyAccount } from "../../common";
-import {
-  show2FARecoveryCodesDialog,
-  showMultifactorDialog,
-  showPasswordDialog
-} from "../../common/dialog-controller";
+import { createBackup, verifyAccount } from "../../common";
+import { showPasswordDialog } from "../../dialogs/password-dialog";
 import { db } from "../../common/db";
 import { showToast } from "../../utils/toast";
+import { RecoveryCodesDialog } from "../mfa/recovery-code-dialog";
+import { MultifactorDialog } from "../mfa/multi-factor-dialog";
+import { RecoveryKeyDialog } from "../recovery-key-dialog";
 
 export const AuthenticationSettings: SettingsGroup[] = [
   {
@@ -45,19 +44,36 @@ export const AuthenticationSettings: SettingsGroup[] = [
             title: "Change password",
             variant: "secondary",
             action: async () => {
-              const result = await showPasswordDialog(
-                "change_account_password",
-                async (data) => {
-                  await db.user?.clearSessions();
+              if (!(await createBackup())) return;
+              const result = await showPasswordDialog({
+                title: "Change account password",
+                message: `All your data will be re-encrypted and synced with the new password.
+                  
+It is recommended that you **log out from all other devices** before continuing.
+
+If this process is interrupted, there is a high chance of data corruption so **please do NOT shut down your device or close your browser** until this process completes.`,
+                inputs: {
+                  oldPassword: {
+                    label: "Old password",
+                    autoComplete: "current-password"
+                  },
+                  newPassword: {
+                    label: "New password",
+                    autoComplete: "new-password"
+                  }
+                },
+                validate: async ({ oldPassword, newPassword }) => {
+                  await db.user.clearSessions();
                   return (
-                    db.user?.changePassword(
-                      data.oldPassword,
-                      data.newPassword
-                    ) || false
+                    (await db.user.changePassword(oldPassword, newPassword)) ||
+                    false
                   );
                 }
-              );
-              if (result) showToast("success", "Account password changed!");
+              });
+              if (result) {
+                showToast("success", "Account password changed!");
+                await RecoveryKeyDialog.show({});
+              }
             }
           }
         ]
@@ -92,7 +108,7 @@ export const AuthenticationSettings: SettingsGroup[] = [
             title: "Change",
             action: async () => {
               if (await verifyAccount()) {
-                await showMultifactorDialog();
+                await MultifactorDialog.show({});
                 await useUserStore.getState().refreshUser();
               }
             },
@@ -117,9 +133,10 @@ export const AuthenticationSettings: SettingsGroup[] = [
             variant: "secondary",
             action: async () => {
               if (await verifyAccount()) {
-                await showMultifactorDialog(
-                  useUserStore.getState().user?.mfa.primaryMethod || "email"
-                );
+                await MultifactorDialog.show({
+                  primaryMethod:
+                    useUserStore.getState().user?.mfa.primaryMethod || "email"
+                });
                 await useUserStore.getState().refreshUser();
               }
             }
@@ -139,9 +156,10 @@ export const AuthenticationSettings: SettingsGroup[] = [
             variant: "secondary",
             action: async () => {
               if (await verifyAccount()) {
-                await show2FARecoveryCodesDialog(
-                  useUserStore.getState().user?.mfa.primaryMethod || "email"
-                );
+                await RecoveryCodesDialog.show({
+                  primaryMethod:
+                    useUserStore.getState().user?.mfa.primaryMethod || "email"
+                });
                 await useUserStore.getState().refreshUser();
               }
             }

@@ -17,29 +17,32 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-import React, { useState, Suspense, useRef } from "react";
+import React, { useState, Suspense, useRef, useEffect } from "react";
 import { Box, Flex } from "@theme-ui/components";
 import { ScopedThemeProvider } from "./components/theme-provider";
 import useMobile from "./hooks/use-mobile";
 import useTablet from "./hooks/use-tablet";
-import useDatabase from "./hooks/use-database";
-import { Allotment, AllotmentHandle, LayoutPriority } from "allotment";
 import { useStore } from "./stores/app-store";
 import { Toaster } from "react-hot-toast";
-import { ViewLoader } from "./components/loaders/view-loader";
 import NavigationMenu from "./components/navigation-menu";
 import StatusBar from "./components/status-bar";
 import { EditorLoader } from "./components/loaders/editor-loader";
 import { FlexScrollContainer } from "./components/scroll-container";
 import CachedRouter from "./components/cached-router";
 import { WebExtensionRelay } from "./utils/web-extension-relay";
-import { usePersistentState } from "./hooks/use-persistent-state";
+import {
+  PanelGroup,
+  Panel,
+  PanelResizeHandle,
+  ImperativePanelHandle
+} from "react-resizable-panels";
+import GlobalMenuWrapper from "./components/global-menu-wrapper";
 
 new WebExtensionRelay();
 
-const GlobalMenuWrapper = React.lazy(
-  () => import("./components/global-menu-wrapper")
-);
+// const GlobalMenuWrapper = React.lazy(
+//   () => import("./components/global-menu-wrapper")
+// );
 const AppEffects = React.lazy(() => import("./app-effects"));
 const MobileAppEffects = React.lazy(() => import("./app-effects.mobile"));
 const HashRouter = React.lazy(() => import("./components/hash-router"));
@@ -47,38 +50,34 @@ const HashRouter = React.lazy(() => import("./components/hash-router"));
 function App() {
   const isMobile = useMobile();
   const [show, setShow] = useState(true);
-  const [isAppLoaded] = useDatabase();
+  const isFocusMode = useStore((store) => store.isFocusMode);
 
   return (
     <>
-      {isAppLoaded && (
-        <Suspense fallback={<div style={{ display: "none" }} />}>
-          <div id="menu-wrapper">
-            <GlobalMenuWrapper />
-          </div>
-          <AppEffects setShow={setShow} />
-          {isMobile && (
-            <MobileAppEffects
-              sliderId="slider"
-              overlayId="overlay"
-              setShow={setShow}
-            />
-          )}
-        </Suspense>
-      )}
+      <Suspense fallback={<div style={{ display: "none" }} />}>
+        <div id="menu-wrapper">
+          <GlobalMenuWrapper />
+        </div>
+        <AppEffects setShow={setShow} />
+        {isMobile && (
+          <MobileAppEffects
+            sliderId="slider"
+            overlayId="overlay"
+            setShow={setShow}
+          />
+        )}
+      </Suspense>
+
       <Flex
         id="app"
         bg="background"
+        className={isFocusMode ? "app-focus-mode" : ""}
         sx={{ overflow: "hidden", flexDirection: "column", height: "100%" }}
       >
         {isMobile ? (
-          <MobileAppContents isAppLoaded={isAppLoaded} />
+          <MobileAppContents />
         ) : (
-          <DesktopAppContents
-            isAppLoaded={isAppLoaded}
-            setShow={setShow}
-            show={show}
-          />
+          <DesktopAppContents setShow={setShow} show={show} />
         )}
         <Toaster containerClassName="toasts-container" />
       </Flex>
@@ -115,23 +114,34 @@ function SuspenseLoader<TComponent extends React.JSXElementConstructor<any>>({
 }
 
 type DesktopAppContentsProps = {
-  isAppLoaded: boolean;
   show: boolean;
   setShow: (show: boolean) => void;
 };
-function DesktopAppContents({
-  isAppLoaded,
-  show,
-  setShow
-}: DesktopAppContentsProps) {
+function DesktopAppContents({ show, setShow }: DesktopAppContentsProps) {
   const isFocusMode = useStore((store) => store.isFocusMode);
   const isTablet = useTablet();
-  const [paneSizes, setPaneSizes] = usePersistentState("paneSizes", [
-    isTablet ? 60 : 180,
-    isTablet ? 240 : 380
-  ]);
-  const panesRef = useRef<AllotmentHandle>(null);
-  const [isNarrow, setIsNarrow] = useState(paneSizes[0] <= 55);
+  const [isNarrow, setIsNarrow] = useState(isTablet || false);
+  const navPane = useRef<ImperativePanelHandle>(null);
+  const middlePane = useRef<ImperativePanelHandle>(null);
+
+  useEffect(() => {
+    setIsNarrow(isTablet);
+  }, [isTablet]);
+
+  // useEffect(() => {
+  //   if (show) middlePane.current?.expand();
+  //   else middlePane.current?.collapse();
+  // }, [show]);
+
+  // useEffect(() => {
+  //   if (isFocusMode) {
+  //     const middlePaneSize = middlePane.current?.getSize() || 20;
+  //     navPane.current?.collapse();
+  //     // the middle pane has to be resized because collapsing the nav
+  //     // pane increases the middle pane's size every time.
+  //     middlePane.current?.resize(middlePaneSize);
+  //   } else navPane.current?.expand();
+  // }, [isFocusMode]);
 
   return (
     <>
@@ -141,53 +151,68 @@ function DesktopAppContents({
           overflow: "hidden"
         }}
       >
-        <Allotment
-          ref={panesRef}
-          proportionalLayout={false}
-          onDragEnd={(sizes) => {
-            setPaneSizes(sizes);
-            setIsNarrow(sizes[0] <= 55);
-          }}
-        >
-          <Allotment.Pane
-            className="pane nav-pane"
-            minSize={50}
-            preferredSize={isTablet ? 50 : paneSizes[0]}
-            visible={!isFocusMode}
-            priority={LayoutPriority.Low}
-          >
-            <NavigationMenu
-              toggleNavigationContainer={(state) => {
-                setShow(state || !show);
-              }}
-              isTablet={isNarrow}
-            />
-          </Allotment.Pane>
-          <Allotment.Pane
-            className="pane middle-pane"
-            minSize={2}
-            preferredSize={paneSizes[1]}
-            visible={show}
-            priority={LayoutPriority.Normal}
-          >
-            <ScopedThemeProvider
-              className="listMenu"
-              scope="list"
-              sx={{
-                display: "flex",
-                flexDirection: "column",
-                flex: 1,
-                bg: "background",
-                borderRight: "1px solid var(--separator)"
-              }}
-            >
-              {isAppLoaded && <CachedRouter />}
-            </ScopedThemeProvider>
-          </Allotment.Pane>
-          <Allotment.Pane
-            className="pane editor-pane"
-            priority={LayoutPriority.High}
-          >
+        <PanelGroup autoSaveId="global-panel-group" direction="horizontal">
+          {!isFocusMode && isTablet ? (
+            <Flex sx={{ width: 50 }}>
+              <NavigationMenu
+                toggleNavigationContainer={(state) => {
+                  setShow(state || !show);
+                }}
+                isTablet={isNarrow}
+              />
+            </Flex>
+          ) : (
+            !isFocusMode && (
+              <>
+                <Panel
+                  ref={navPane}
+                  order={1}
+                  className="nav-pane"
+                  defaultSize={10}
+                  minSize={3.5}
+                  // maxSize={isNarrow ? 5 : undefined}
+                  onResize={(size) => setIsNarrow(size <= 5)}
+                  collapsible
+                  collapsedSize={3.5}
+                >
+                  <NavigationMenu
+                    toggleNavigationContainer={(state) => {
+                      setShow(state || !show);
+                    }}
+                    isTablet={isNarrow}
+                  />
+                </Panel>
+                <PanelResizeHandle className="panel-resize-handle" />
+              </>
+            )
+          )}
+          {!isFocusMode && show && (
+            <>
+              <Panel
+                ref={middlePane}
+                className="middle-pane"
+                order={2}
+                collapsible
+                defaultSize={20}
+              >
+                <ScopedThemeProvider
+                  className="listMenu"
+                  scope="list"
+                  sx={{
+                    display: "flex",
+                    flexDirection: "column",
+                    flex: 1,
+                    bg: "background",
+                    borderRight: "1px solid var(--separator)"
+                  }}
+                >
+                  <CachedRouter />
+                </ScopedThemeProvider>
+              </Panel>
+              <PanelResizeHandle className="panel-resize-handle" />
+            </>
+          )}
+          <Panel className="editor-pane" order={3} defaultSize={70}>
             <Flex
               sx={{
                 display: "flex",
@@ -197,24 +222,17 @@ function DesktopAppContents({
                 bg: "background"
               }}
             >
-              {isAppLoaded && (
-                <SuspenseLoader
-                  fallback={<EditorLoader />}
-                  component={HashRouter}
-                  condition={isAppLoaded}
-                />
-              )}
+              {<HashRouter />}
             </Flex>
-          </Allotment.Pane>
-        </Allotment>
+          </Panel>
+        </PanelGroup>
       </Flex>
-
       <StatusBar />
     </>
   );
 }
 
-function MobileAppContents({ isAppLoaded }: { isAppLoaded: boolean }) {
+function MobileAppContents() {
   return (
     <FlexScrollContainer
       id="slider"
@@ -253,11 +271,7 @@ function MobileAppContents({ isAppLoaded }: { isAppLoaded: boolean }) {
           width: "100vw"
         }}
       >
-        <SuspenseLoader
-          condition={isAppLoaded}
-          component={CachedRouter}
-          fallback={<ViewLoader />}
-        />
+        <CachedRouter />
         <Box
           id="overlay"
           sx={{
@@ -286,7 +300,7 @@ function MobileAppContents({ isAppLoaded }: { isAppLoaded: boolean }) {
         <SuspenseLoader
           fallback={<EditorLoader />}
           component={HashRouter}
-          condition={isAppLoaded}
+          condition={true}
         />
       </Flex>
     </FlexScrollContainer>

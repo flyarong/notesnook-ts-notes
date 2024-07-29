@@ -161,9 +161,9 @@ function TableRowToolbar(props: TableToolbarProps) {
       }
     }
 
-    editor.current?.on("selectionUpdate", onSelectionUpdate);
+    editor.on("selectionUpdate", onSelectionUpdate);
     return () => {
-      editor.current?.off("selectionUpdate", onSelectionUpdate);
+      editor.off("selectionUpdate", onSelectionUpdate);
     };
   }, [textDirection]);
 
@@ -230,13 +230,15 @@ function TableColumnToolbar(props: TableToolbarProps) {
         yOffset: 2
       });
 
-      columnToolsRef.current.style.left = `${pos.left}px`;
+      columnToolsRef.current.style.left = `${
+        pos.left - (table.current.parentElement?.scrollLeft || 0)
+      }px`;
       columnToolsRef.current.style.top = `${pos.top}px`;
     }
 
-    editor.current?.on("selectionUpdate", onSelectionUpdate);
+    editor.on("selectionUpdate", onSelectionUpdate);
     return () => {
-      editor.current?.off("selectionUpdate", onSelectionUpdate);
+      editor.off("selectionUpdate", onSelectionUpdate);
     };
   }, []);
 

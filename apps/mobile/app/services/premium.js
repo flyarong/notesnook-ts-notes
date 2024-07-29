@@ -35,10 +35,14 @@ import {
   eOpenTrialEndingDialog,
   eShowGetPremium
 } from "../utils/events";
-import { eSendEvent, presentSheet, ToastEvent } from "./event-manager";
+import { eSendEvent, presentSheet, ToastManager } from "./event-manager";
 
 import SettingsService from "./settings";
 let premiumStatus = 0;
+
+/**
+ * @type {RNIap.Subscription[]}
+ */
 let products = [];
 let user = null;
 
@@ -68,7 +72,9 @@ async function setPremiumStatus() {
   }
   try {
     await RNIap.initConnection();
-    products = await RNIap.getSubscriptions(itemSkus);
+    products = await RNIap.getSubscriptions({
+      skus: itemSkus
+    });
   } catch (e) {
     console.log("subscriptions: ", e);
   }
@@ -189,7 +195,7 @@ const showVerifyEmailDialog = () => {
           lastVerificationEmailTime &&
           Date.now() - lastVerificationEmailTime < 60000 * 2
         ) {
-          ToastEvent.show({
+          ToastManager.show({
             heading: "Please wait before requesting another email",
             type: "error",
             context: "local"
@@ -202,7 +208,7 @@ const showVerifyEmailDialog = () => {
           lastVerificationEmailTime: Date.now()
         });
 
-        ToastEvent.show({
+        ToastManager.show({
           heading: "Verification email sent!",
           message:
             "We have sent you an email confirmation link. Please check your email inbox to verify your account. If you cannot find the email, check your spam folder.",
@@ -210,7 +216,7 @@ const showVerifyEmailDialog = () => {
           context: "local"
         });
       } catch (e) {
-        ToastEvent.show({
+        ToastManager.show({
           heading: "Could not send email",
           message: e.message,
           type: "error",
@@ -223,12 +229,21 @@ const showVerifyEmailDialog = () => {
 };
 
 const subscriptions = {
-  get: async () => {
+  /**
+   *
+   * @returns {RNIap.Purchase} subscription
+   */
+  get: () => {
     if (Platform.OS === "android") return;
     let _subscriptions = MMKV.getString("subscriptionsIOS");
     if (!_subscriptions) return [];
     return JSON.parse(_subscriptions);
   },
+  /**
+   *
+   * @param {RNIap.Purchase} subscription
+   * @returns
+   */
   set: async (subscription) => {
     if (Platform.OS === "android") return;
     let _subscriptions = MMKV.getString("subscriptionsIOS");
@@ -263,6 +278,10 @@ const subscriptions = {
       MMKV.setString("subscriptionsIOS", JSON.stringify(_subscriptions));
     }
   },
+  /**
+   *
+   * @param {RNIap.Purchase} subscription
+   */
   verify: async (subscription) => {
     if (Platform.OS === "android") return;
 
@@ -280,12 +299,16 @@ const subscriptions = {
             "Content-Type": "application/json"
           }
         };
+
+        console.log("Subscription.verify", requestData);
         try {
           let result = await fetch(
-            "https://payments.streetwriters.co/apple/verify",
+            __DEV__
+              ? "http://192.168.43.5:4264/apple/verify"
+              : "https://payments.streetwriters.co/apple/verify",
             requestData
           );
-
+          console.log("Subscribed", result);
           let text = await result.text();
 
           if (!result.ok) {
@@ -293,6 +316,8 @@ const subscriptions = {
               await subscriptions.clear(subscription);
             }
             return;
+          } else {
+            await subscriptions.clear(subscription);
           }
         } catch (e) {
           console.log("subscription error", e);
@@ -302,15 +327,18 @@ const subscriptions = {
   },
   clear: async (_subscription) => {
     if (Platform.OS === "android") return;
-    let _subscriptions = await subscriptions.get();
+    let _subscriptions = subscriptions.get();
     let subscription = null;
     if (_subscription) {
       subscription = _subscription;
     } else {
       subscription = _subscriptions.length > 0 ? _subscriptions[0] : null;
     }
+
     if (subscription) {
-      await RNIap.finishTransaction(subscription.transactionId);
+      await RNIap.finishTransaction({
+        purchase: subscription
+      });
       await RNIap.clearTransactionIOS();
       await subscriptions.remove(subscription.transactionId);
     }

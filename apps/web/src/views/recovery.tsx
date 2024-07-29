@@ -21,16 +21,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Flex, Text } from "@theme-ui/components";
 import { makeURL, useQueryParams } from "../navigation";
 import { db } from "../common/db";
-import useDatabase from "../hooks/use-database";
 import { Loader } from "../components/loader";
 import { showToast } from "../utils/toast";
 import AuthContainer from "../components/auth-container";
 import { AuthField, SubmitButton } from "./auth";
 import { createBackup, restoreBackupFile, selectBackupFile } from "../common";
-import { showRecoveryKeyDialog } from "../common/dialog-controller";
 import Config from "../utils/config";
 import { EVENTS } from "@notesnook/core/dist/common";
 import { ErrorText } from "../components/error-text";
+import { User } from "@notesnook/core";
+import { RecoveryKeyDialog } from "../dialogs/recovery-key-dialog";
 
 type RecoveryMethodType = "key" | "backup" | "reset";
 type RecoveryMethodsFormData = Record<string, unknown>;
@@ -121,24 +121,20 @@ function useAuthenticateUser({
   code: string;
   userId: string;
 }) {
-  const [isAppLoaded] = useDatabase(isSessionExpired() ? "db" : "memory");
   const [isAuthenticating, setIsAuthenticating] = useState(true);
   const [user, setUser] = useState<User>();
   useEffect(() => {
-    if (!isAppLoaded) return;
     async function authenticateUser() {
       setIsAuthenticating(true);
       try {
-        await db.init();
-
-        const accessToken = await db.user?.tokenManager.getAccessToken();
+        const accessToken = await db.tokenManager.getAccessToken();
         if (!accessToken) {
-          await db.user?.tokenManager.getAccessTokenFromAuthorizationCode(
+          await db.tokenManager.getAccessTokenFromAuthorizationCode(
             userId,
             code.replace(/ /gm, "+")
           );
         }
-        const user = await db.user?.fetchUser();
+        const user = await db.user.fetchUser();
         setUser(user);
       } catch (e) {
         showToast("error", "Failed to authenticate. Please try again.");
@@ -149,7 +145,7 @@ function useAuthenticateUser({
     }
 
     authenticateUser();
-  }, [code, userId, isAppLoaded]);
+  }, [code, userId]);
   return { isAuthenticating, user };
 }
 
@@ -329,23 +325,14 @@ function RecoveryMethods(props: BaseRecoveryComponentProps<"methods">) {
 
 function RecoveryKeyMethod(props: BaseRecoveryComponentProps<"method:key">) {
   const { navigate } = props;
-  const [progress, setProgress] = useState("0");
+  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     db.eventManager.subscribe(
       EVENTS.syncProgress,
-      ({
-        type,
-        total,
-        current
-      }: {
-        type: string;
-        total: number;
-        current: number;
-      }) => {
-        if (total === current) return;
+      ({ type, current }: { type: string; current: number }) => {
         if (type === "download") {
-          setProgress(((current / total) * 100).toFixed());
+          setProgress(current);
         }
       }
     );
@@ -358,16 +345,16 @@ function RecoveryKeyMethod(props: BaseRecoveryComponentProps<"method:key">) {
       title="Recover your account"
       subtitle={"Use a data recovery key to reset your account password."}
       loading={{
-        title: `Downloading your data (${progress}%)`,
+        title: `Downloading your data (${progress})`,
         subtitle: "Please wait while your data is downloaded & decrypted."
       }}
       onSubmit={async (form) => {
-        setProgress("0");
+        setProgress(0);
 
-        const user = await db.user?.getUser();
+        const user = await db.user.getUser();
         if (!user) throw new Error("User not authenticated");
-        await db.storage?.write(`_uk_@${user.email}@_k`, form.recoveryKey);
-        await db.sync(true, true);
+        await db.storage().write(`_uk_@${user.email}@_k`, form.recoveryKey);
+        await db.sync({ type: "fetch", force: true });
         navigate("backup");
       }}
     >
@@ -468,7 +455,7 @@ function BackupData(props: BaseRecoveryComponentProps<"backup">) {
           "Please wait while we create a backup file for you to download."
       }}
       onSubmit={async () => {
-        await createBackup();
+        await createBackup({ rescueMode: true });
         navigate("new");
       }}
     >
@@ -479,14 +466,13 @@ function BackupData(props: BaseRecoveryComponentProps<"backup">) {
 
 function NewPassword(props: BaseRecoveryComponentProps<"new">) {
   const { navigate, formData } = props;
-  const [progress, setProgress] = useState("0");
+  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     db.eventManager.subscribe(
       EVENTS.syncProgress,
-      ({ total, current }: { total: number; current: number }) => {
-        if (total === current) return;
-        setProgress(((current / total) * 100).toFixed());
+      ({ current }: { current: number }) => {
+        setProgress(current);
       }
     );
   }, []);
@@ -500,24 +486,24 @@ function NewPassword(props: BaseRecoveryComponentProps<"new">) {
         "Notesnook is E2E encrypted — your password never leaves this device."
       }
       loading={{
-        title: `Resetting account password (${progress}%)`,
+        title: `Resetting account password (${progress})`,
         subtitle: "Please wait while we reset your account password."
       }}
       onSubmit={async (form) => {
-        setProgress("0");
+        setProgress(0);
 
         if (form.password !== form.confirmPassword)
           throw new Error("Passwords do not match.");
 
-        if (formData?.userResetRequired && !(await db.user?.resetUser()))
+        if (formData?.userResetRequired && !(await db.user.resetUser()))
           throw new Error("Failed to reset user.");
 
-        if (!(await db.user?.resetPassword(form.password)))
+        if (!(await db.user.resetPassword(form.password)))
           throw new Error("Could not reset account password.");
 
         if (formData?.backupFile) {
           await restoreBackupFile(formData?.backupFile);
-          await db.sync(true, true);
+          await db.sync({ type: "full", force: true });
         }
 
         navigate("final");
@@ -551,10 +537,10 @@ function Final(_props: BaseRecoveryComponentProps<"final">) {
   const [isReady, setIsReady] = useState(false);
   useEffect(() => {
     async function finalize() {
-      await showRecoveryKeyDialog();
+      await RecoveryKeyDialog.show({});
       if (!isSessionExpired()) {
-        await db.user?.logout(true, "Password changed.");
-        await db.user?.clearSessions(true);
+        await db.user.logout(true, "Password changed.");
+        await db.user.clearSessions(true);
       }
       setIsReady(true);
     }

@@ -33,10 +33,23 @@ import { ProgressStream } from "../utils/streams/progress-stream";
 import { consumeReadableStream } from "../utils/stream";
 import { Base64DecoderStream } from "../utils/streams/base64-decoder-stream";
 import { toBlob } from "@notesnook-importer/core/dist/src/utils/stream";
-import { Cipher, DataFormat, SerializedKey } from "@notesnook/crypto";
+import { DataFormat, SerializedKey } from "@notesnook/crypto";
 import { IDataType } from "hash-wasm/dist/lib/util";
-import { IndexedDBKVStore } from "./key-value";
 import FileHandle from "@notesnook/streamable-fs/dist/src/filehandle";
+import {
+  CacheStorageFileStore,
+  IndexedDBFileStore,
+  OriginPrivateFileSystem
+} from "./file-store";
+import { isFeatureSupported } from "../utils/feature-check";
+import {
+  FileEncryptionMetadataWithHash,
+  FileEncryptionMetadataWithOutputType,
+  IFileStorage,
+  Output,
+  RequestOptions
+} from "@notesnook/core/dist/interfaces";
+import { logger } from "../utils/logger";
 
 const ABYTES = 17;
 const CHUNK_SIZE = 512 * 1024;
@@ -45,14 +58,20 @@ const UPLOAD_PART_REQUIRED_CHUNKS = Math.ceil(
   (5 * 1024 * 1024) / ENCRYPTED_CHUNK_SIZE
 );
 const MINIMUM_MULTIPART_FILE_SIZE = 25 * 1024 * 1024;
-const streamablefs = new StreamableFS("streamable-fs");
+const streamablefs = new StreamableFS(
+  isFeatureSupported("opfs")
+    ? new OriginPrivateFileSystem("streamable-fs")
+    : isFeatureSupported("cache")
+    ? new CacheStorageFileStore("streamable-fs")
+    : new IndexedDBFileStore("streamable-fs")
+);
 
-async function writeEncryptedFile(
+export async function writeEncryptedFile(
   file: File,
   key: SerializedKey,
   hash: string
 ) {
-  if (!IndexedDBKVStore.isIndexedDBSupported())
+  if (!isFeatureSupported("indexedDB"))
     throw new Error("This browser does not support IndexedDB.");
 
   if (await streamablefs.exists(hash)) await streamablefs.deleteFile(hash);
@@ -69,7 +88,12 @@ async function writeEncryptedFile(
   const { iv, stream } = await NNCrypto.createEncryptionStream(key);
   await file
     .stream()
-    .pipeThrough(new ChunkedStream(CHUNK_SIZE))
+    .pipeThrough(
+      new ChunkedStream(
+        CHUNK_SIZE,
+        isFeatureSupported("opfs") ? "copy" : "nocopy"
+      )
+    )
     .pipeThrough(new IntoChunks(file.size))
     .pipeThrough(stream)
     .pipeThrough(
@@ -94,7 +118,7 @@ async function writeEncryptedFile(
   return {
     chunkSize: CHUNK_SIZE,
     iv: iv,
-    length: file.size,
+    size: file.size,
     salt: key.salt!,
     alg: "xcha-stream"
   };
@@ -107,21 +131,19 @@ async function writeEncryptedFile(
  * 3. We encrypt the Uint8Array
  * 4. We save the encrypted Uint8Array
  */
-async function writeEncryptedBase64(metadata: {
-  data: string;
-  key: SerializedKey;
-  mimeType?: string;
-}) {
-  const { data, key, mimeType } = metadata;
-
+async function writeEncryptedBase64(
+  data: string,
+  key: SerializedKey,
+  mimeType: string
+): Promise<FileEncryptionMetadataWithHash> {
   const bytes = new Uint8Array(Buffer.from(data, "base64"));
 
   const { hash, type: hashType } = await hashBuffer(bytes);
 
-  const attachment = db.attachments?.attachment(hash);
+  const attachment = await db.attachments.attachment(hash);
 
   const file = new File([bytes.buffer], hash, {
-    type: attachment?.metadata.type || mimeType || "application/octet-stream"
+    type: attachment?.mimeType || mimeType || "application/octet-stream"
   });
 
   const result = await writeEncryptedFile(file, key, hash);
@@ -136,14 +158,16 @@ function hashBase64(data: string) {
   return hashBuffer(Buffer.from(data, "base64"));
 }
 
-async function hashBuffer(data: IDataType) {
+export async function hashBuffer(data: IDataType) {
   return {
     hash: await xxhash64(data),
     type: "xxh64"
   };
 }
 
-async function hashStream(reader: ReadableStreamDefaultReader<Uint8Array>) {
+export async function hashStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>
+) {
   const hasher = await createXXHash64();
   hasher.init();
 
@@ -157,47 +181,46 @@ async function hashStream(reader: ReadableStreamDefaultReader<Uint8Array>) {
   return { type: "xxh64", hash: hasher.digest("hex") };
 }
 
-async function readEncrypted(
+async function readEncrypted<TOutputFormat extends DataFormat>(
   filename: string,
   key: SerializedKey,
-  cipherData: Cipher<DataFormat> & { outputType: DataFormat }
+  cipherData: FileEncryptionMetadataWithOutputType<TOutputFormat>
 ) {
   const fileHandle = await streamablefs.readFile(filename);
   if (!fileHandle) {
     console.error(`File not found. (File hash: ${filename})`);
-    return null;
+    return;
   }
   const decryptionStream = await NNCrypto.createDecryptionStream(
     key,
     cipherData.iv
   );
 
-  return cipherData.outputType === "base64" || cipherData.outputType === "text"
-    ? (
-        await consumeReadableStream(
-          fileHandle.readable
-            .pipeThrough(decryptionStream)
-            .pipeThrough(
-              cipherData.outputType === "text"
-                ? new globalThis.TextDecoderStream()
-                : new Base64DecoderStream()
-            )
-        )
-      ).join("")
-    : new Uint8Array(
-        Buffer.concat(
+  return (
+    cipherData.outputType === "base64" || cipherData.outputType === "text"
+      ? (
           await consumeReadableStream(
-            fileHandle.readable.pipeThrough(decryptionStream)
+            fileHandle.readable
+              .pipeThrough(decryptionStream)
+              .pipeThrough(
+                cipherData.outputType === "text"
+                  ? new globalThis.TextDecoderStream()
+                  : new Base64DecoderStream()
+              )
+          )
+        ).join("")
+      : new Uint8Array(
+          Buffer.concat(
+            await consumeReadableStream(
+              fileHandle.readable.pipeThrough(decryptionStream)
+            )
           )
         )
-      );
+  ) as Output<TOutputFormat>;
 }
 
-type RequestOptions = {
-  headers: Record<string, string>;
+type RequestOptionsWithSignal = RequestOptions & {
   signal: AbortSignal;
-  url: string;
-  chunkSize: number;
 };
 
 type UploadAdditionalData = {
@@ -207,10 +230,21 @@ type UploadAdditionalData = {
   uploadedChunks?: { PartNumber: number; ETag: string }[];
 };
 
-async function uploadFile(filename: string, requestOptions: RequestOptions) {
+async function uploadFile(
+  filename: string,
+  requestOptions: RequestOptionsWithSignal
+) {
+  // if file already exists on the server, we just return true
+  // we don't reupload the file i.e. overwriting is not possible.
+  const uploadedFileSize = await getUploadedFileSize(filename);
+  if (uploadedFileSize === -1) return false;
+  if (uploadedFileSize > 0) return true;
+
   const fileHandle = await streamablefs.readFile(filename);
-  if (!fileHandle)
-    throw new Error(`File stream not found. (File hash: ${filename})`);
+  if (!fileHandle || !(await exists(filename)))
+    throw new Error(
+      `File is corrupt or missing data. Please upload the file again. (File hash: ${filename})`
+    );
   try {
     if (fileHandle.file.additionalData?.uploaded) {
       await checkUpload(filename);
@@ -233,6 +267,7 @@ async function uploadFile(filename: string, requestOptions: RequestOptions) {
 
     return uploaded;
   } catch (e) {
+    console.error(e);
     reportProgress(undefined, { type: "upload", hash: filename });
     const error = toS3Error(e);
     if (
@@ -256,17 +291,20 @@ async function uploadFile(filename: string, requestOptions: RequestOptions) {
 async function singlePartUploadFile(
   fileHandle: FileHandle,
   filename: string,
-  requestOptions: RequestOptions
+  requestOptions: RequestOptionsWithSignal
 ) {
   console.log("Streaming file upload!");
   const { url, headers, signal } = requestOptions;
 
-  const uploadUrl = await fetch(url, {
+  const uploadUrl: string | { error?: string } = await fetch(url, {
     method: "PUT",
     headers,
     signal
-  }).then((res) => (res.ok ? res.text() : null));
-  if (!uploadUrl) throw new Error("Unable to resolve attachment upload url.");
+  }).then((res) => (res.ok ? res.text() : res.json()));
+  if (typeof uploadUrl !== "string")
+    throw new Error(
+      uploadUrl.error || "Unable to resolve attachment upload url."
+    );
 
   const response = await axios.request({
     url: uploadUrl,
@@ -274,9 +312,7 @@ async function singlePartUploadFile(
     headers: {
       "Content-Type": ""
     },
-    data: IS_DESKTOP_APP
-      ? await (await fileHandle.toBlob()).arrayBuffer()
-      : await fileHandle.toBlob(),
+    data: await fileHandle.toBlob(),
     signal,
     onUploadProgress: (ev) =>
       reportProgress(
@@ -296,7 +332,7 @@ async function singlePartUploadFile(
 async function multiPartUploadFile(
   fileHandle: FileHandle,
   filename: string,
-  requestOptions: RequestOptions
+  requestOptions: RequestOptionsWithSignal
 ) {
   const { headers, signal } = requestOptions;
 
@@ -321,6 +357,9 @@ async function multiPartUploadFile(
       throw new WrappedError("Could not initiate multi-part upload.", e);
     });
 
+  if (initiateMultiPartUpload.data.error)
+    throw new Error(initiateMultiPartUpload.data.error);
+
   uploadId = initiateMultiPartUpload.data.uploadId;
   const { parts } = initiateMultiPartUpload.data;
 
@@ -332,7 +371,7 @@ async function multiPartUploadFile(
   const onUploadProgress = (ev: AxiosProgressEvent) => {
     reportProgress(
       {
-        total: fileHandle.file.size + ABYTES,
+        total: fileHandle.file.size + ABYTES * TOTAL_PARTS,
         loaded: uploadedBytes + ev.loaded
       },
       {
@@ -342,20 +381,20 @@ async function multiPartUploadFile(
     );
   };
 
+  onUploadProgress({ bytes: 0, loaded: 0 });
   for (let i = uploadedChunks.length; i < TOTAL_PARTS; ++i) {
     const blob = await fileHandle.readChunks(
       i * UPLOAD_PART_REQUIRED_CHUNKS,
       UPLOAD_PART_REQUIRED_CHUNKS
     );
     const url = parts[i];
-    const data = await blob.arrayBuffer();
     const response = await axios
       .request({
         url,
         method: "PUT",
         headers: { "Content-Type": "" },
         signal,
-        data,
+        data: blob,
         onUploadProgress
       })
       .catch((e) => {
@@ -374,6 +413,8 @@ async function multiPartUploadFile(
     });
     await fileHandle.addAdditionalData("uploadedChunks", uploadedChunks);
     await fileHandle.addAdditionalData("uploadedBytes", uploadedBytes);
+
+    onUploadProgress({ bytes: 0, loaded: 0 });
   }
 
   await axios
@@ -423,19 +464,25 @@ function reportProgress(
   });
 }
 
-async function downloadFile(filename: string, requestOptions: RequestOptions) {
-  const { url, headers, chunkSize, signal } = requestOptions;
-  const handle = await streamablefs.readFile(filename);
-
-  if (
-    handle &&
-    handle.file.size === (await handle.size()) - handle.file.chunks * ABYTES
-  )
-    return true;
-  else if (handle) await handle.delete();
-
-  const attachment = db.attachments?.attachment(filename);
+async function downloadFile(
+  filename: string,
+  requestOptions: RequestOptionsWithSignal
+) {
   try {
+    logger.debug("DOWNLOADING FILE", { filename });
+    const { url, headers, chunkSize, signal } = requestOptions;
+    const handle = await streamablefs.readFile(filename);
+
+    if (
+      handle &&
+      handle.file.size === (await handle.size()) - handle.file.chunks * ABYTES
+    )
+      return true;
+    else if (handle) await handle.delete();
+
+    const attachment = await db.attachments.attachment(filename);
+    if (!attachment) throw new Error("Attachment doesn't exist.");
+
     reportProgress(
       { total: 100, loaded: 0 },
       { type: "download", hash: filename }
@@ -448,9 +495,13 @@ async function downloadFile(filename: string, requestOptions: RequestOptions) {
       })
     ).data;
 
+    logger.debug("Got attachment signed url", { filename });
+
     const response = await fetch(signedUrl, {
       signal
     });
+
+    logger.debug("Got attachment", { filename });
 
     const contentType = response.headers.get("content-type");
     if (contentType === "application/xml") {
@@ -464,28 +515,28 @@ async function downloadFile(filename: string, requestOptions: RequestOptions) {
     );
     if (contentLength === 0 || isNaN(contentLength)) {
       const error = `File length is 0. Please upload this file again from the attachment manager. (File hash: ${filename})`;
-      await db.attachments?.markAsFailed(filename, error);
+      await db.attachments.markAsFailed(attachment.id, error);
       throw new Error(error);
     }
 
     if (!response.body) {
       const error = `The download response does not contain a body. Please upload this file again from the attachment manager. (File hash: ${filename})`;
-      await db.attachments?.markAsFailed(filename, error);
+      await db.attachments.markAsFailed(attachment.id, error);
       throw new Error(error);
     }
 
     const totalChunks = Math.ceil(contentLength / chunkSize);
     const decryptedLength = contentLength - totalChunks * ABYTES;
-    if (attachment && attachment.length !== decryptedLength) {
+    if (attachment && attachment.size !== decryptedLength) {
       const error = `File length mismatch. Please upload this file again from the attachment manager. (File hash: ${filename})`;
-      await db.attachments?.markAsFailed(filename, error);
+      await db.attachments.markAsFailed(attachment.id, error);
       throw new Error(error);
     }
 
     const fileHandle = await streamablefs.createFile(
       filename,
       decryptedLength,
-      attachment?.metadata.type || "application/octet-stream"
+      attachment?.mimeType || "application/octet-stream"
     );
 
     await response.body
@@ -500,11 +551,18 @@ async function downloadFile(filename: string, requestOptions: RequestOptions) {
           );
         })
       )
-      .pipeThrough(new ChunkedStream(chunkSize + ABYTES))
+      .pipeThrough(
+        new ChunkedStream(
+          chunkSize + ABYTES,
+          isFeatureSupported("opfs") ? "copy" : "nocopy"
+        )
+      )
       .pipeTo(fileHandle.writeable);
 
+    logger.debug("Attachment downloaded", { filename });
     return true;
   } catch (e) {
+    logger.error(e, "Could not download file", { filename });
     showError(toS3Error(e), "Could not download file");
     reportProgress(undefined, { type: "download", hash: filename });
     return false;
@@ -514,7 +572,7 @@ async function downloadFile(filename: string, requestOptions: RequestOptions) {
 async function exists(filename: string) {
   const handle = await streamablefs.readFile(filename);
   return (
-    handle &&
+    !!handle &&
     handle.file.size === (await handle.size()) - handle.file.chunks * ABYTES
   );
 }
@@ -530,6 +588,15 @@ export async function decryptFile(
   filename: string,
   fileMetadata: FileMetadata
 ) {
+  const stream = await streamingDecryptFile(filename, fileMetadata);
+  if (!stream) return false;
+  return await toBlob(stream);
+}
+
+export async function streamingDecryptFile(
+  filename: string,
+  fileMetadata: FileMetadata
+) {
   if (!fileMetadata) return false;
 
   const fileHandle = await streamablefs.readFile(filename);
@@ -538,24 +605,30 @@ export async function decryptFile(
   const { key, iv } = fileMetadata;
 
   const decryptionStream = await NNCrypto.createDecryptionStream(key, iv);
-  return await toBlob(fileHandle.readable.pipeThrough(decryptionStream));
+  return fileHandle.readable.pipeThrough(decryptionStream);
 }
 
-async function saveFile(filename: string, fileMetadata: FileMetadata) {
-  if (!fileMetadata) return false;
-
+export async function saveFile(filename: string, fileMetadata: FileMetadata) {
+  logger.debug("Saving file", { filename });
   const { name, type, isUploaded } = fileMetadata;
 
   const decrypted = await decryptFile(filename, fileMetadata);
+  logger.debug("Decrypting file", { filename, result: !!decrypted });
   if (decrypted) saveAs(decrypted, getFileNameWithExtension(name, type));
 
   if (isUploaded && isAttachmentDeletable(type))
     await streamablefs.deleteFile(filename);
 }
 
-async function deleteFile(filename: string, requestOptions: RequestOptions) {
-  if (!requestOptions) return await streamablefs.deleteFile(filename);
-  if (!requestOptions && !(await streamablefs.exists(filename))) return true;
+async function deleteFile(
+  filename: string,
+  requestOptions?: RequestOptionsWithSignal
+) {
+  if (!requestOptions)
+    return (
+      !(await streamablefs.exists(filename)) ||
+      (await streamablefs.deleteFile(filename))
+    );
 
   try {
     const { url, headers } = requestOptions;
@@ -572,10 +645,17 @@ async function deleteFile(filename: string, requestOptions: RequestOptions) {
   }
 }
 
-async function getUploadedFileSize(filename: string) {
+/**
+ * `-1` means an error during file size
+ *
+ * `0` means file either doesn't exist or file is actually of 0 length
+ *
+ * `>0` means file is valid
+ */
+export async function getUploadedFileSize(filename: string) {
   try {
     const url = `${hosts.API_HOST}/s3?name=${filename}`;
-    const token = await db.user?.tokenManager.getAccessToken();
+    const token = await db.tokenManager.getAccessToken();
 
     const attachmentInfo = await axios.head(url, {
       headers: { Authorization: `Bearer ${token}` }
@@ -584,8 +664,8 @@ async function getUploadedFileSize(filename: string) {
     const contentLength = parseInt(attachmentInfo.headers["content-length"]);
     return isNaN(contentLength) ? 0 : contentLength;
   } catch (e) {
-    console.error(e);
-    return 0;
+    logger.error(e, "Failed to get uploaded file size.", { filename });
+    return -1;
   }
 }
 
@@ -593,24 +673,16 @@ function clearFileStorage() {
   return streamablefs.clear();
 }
 
-const FS = {
+export const FileStorage: IFileStorage = {
   writeEncryptedBase64,
   readEncrypted,
   uploadFile: cancellable(uploadFile),
   downloadFile: cancellable(downloadFile),
   deleteFile,
-  saveFile,
   exists,
-  writeEncryptedFile,
   clearFileStorage,
-  getUploadedFileSize,
-  decryptFile,
-
-  hashBase64,
-  hashBuffer,
-  hashStream
+  hashBase64
 };
-export default FS;
 
 function isAttachmentDeletable(type: string) {
   return !type.startsWith("image/") && !type.startsWith("application/pdf");
@@ -620,15 +692,21 @@ function isSuccessStatusCode(statusCode: number) {
   return statusCode >= 200 && statusCode <= 299;
 }
 
-function cancellable(
-  operation: (filename: string, requestOptions: RequestOptions) => any
+function cancellable<T>(
+  operation: (
+    filename: string,
+    requestOptions: RequestOptionsWithSignal
+  ) => Promise<T>
 ) {
   return function (filename: string, requestOptions: RequestOptions) {
     const abortController = new AbortController();
-    requestOptions.signal = abortController.signal;
     return {
-      execute: () => operation(filename, requestOptions),
-      cancel: (message: string) => {
+      execute: () =>
+        operation(filename, {
+          ...requestOptions,
+          signal: abortController.signal
+        }),
+      cancel: async (message: string) => {
         abortController.abort(message);
       }
     };

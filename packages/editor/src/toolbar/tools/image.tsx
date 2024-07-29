@@ -24,11 +24,8 @@ import { ResponsivePresenter } from "../../components/responsive";
 import { MoreTools } from "../components/more-tools";
 import { useToolbarLocation } from "../stores/toolbar-store";
 import { ImageProperties as ImagePropertiesPopup } from "../popups/image-properties";
-import {
-  ImageAlignmentOptions,
-  ImageSizeOptions
-} from "../../extensions/image";
 import { findSelectedNode } from "../../utils/prosemirror";
+import { ImageAttributes } from "@/src/extensions/image";
 
 export function ImageSettings(props: ToolProps) {
   const { editor } = props;
@@ -42,20 +39,16 @@ export function ImageSettings(props: ToolProps) {
       autoCloseOnUnmount
       popupId="imageSettings"
       tools={
-        findSelectedNode(editor, "image")?.attrs?.float
+        editor.isEditable
           ? [
-              "downloadAttachment",
-              "imageAlignLeft",
-              "imageAlignRight",
-              "imageProperties"
-            ]
-          : [
               "downloadAttachment",
               "imageAlignLeft",
               "imageAlignCenter",
               "imageAlignRight",
+              "imageFloat",
               "imageProperties"
             ]
+          : ["downloadAttachment"]
       }
     />
   );
@@ -63,16 +56,17 @@ export function ImageSettings(props: ToolProps) {
 
 export function ImageAlignLeft(props: ToolProps) {
   const { editor } = props;
+  const image = findSelectedNode(editor, "image");
+  if (!image) return null;
+
+  const { align } = image.attrs as ImageAttributes;
+
   return (
     <ToolButton
       {...props}
-      toggled={false}
+      toggled={!align || align === "left"}
       onClick={() =>
-        editor.current
-          ?.chain()
-          .focus()
-          .setImageAlignment({ align: "left" })
-          .run()
+        editor.chain().focus().setImageAlignment({ align: "left" }).run()
       }
     />
   );
@@ -80,16 +74,17 @@ export function ImageAlignLeft(props: ToolProps) {
 
 export function ImageAlignRight(props: ToolProps) {
   const { editor } = props;
+  const image = findSelectedNode(editor, "image");
+  if (!image) return null;
+
+  const { align } = image.attrs as ImageAttributes;
+
   return (
     <ToolButton
       {...props}
-      toggled={false}
+      toggled={align === "right"}
       onClick={() =>
-        editor.current
-          ?.chain()
-          .focus()
-          .setImageAlignment({ align: "right" })
-          .run()
+        editor.chain().focus().setImageAlignment({ align: "right" }).run()
       }
     />
   );
@@ -97,16 +92,35 @@ export function ImageAlignRight(props: ToolProps) {
 
 export function ImageAlignCenter(props: ToolProps) {
   const { editor } = props;
+  const image = findSelectedNode(editor, "image");
+  if (!image) return null;
+
+  const { align } = image.attrs as ImageAttributes;
+
   return (
     <ToolButton
       {...props}
-      toggled={false}
+      toggled={align === "center"}
       onClick={() =>
-        editor.current
-          ?.chain()
-          .focus()
-          .setImageAlignment({ align: "center" })
-          .run()
+        editor.chain().focus().setImageAlignment({ align: "center" }).run()
+      }
+    />
+  );
+}
+
+export function ImageFloat(props: ToolProps) {
+  const { editor } = props;
+  const image = findSelectedNode(editor, "image");
+  if (!image) return null;
+
+  const { float } = image.attrs as ImageAttributes;
+
+  return (
+    <ToolButton
+      {...props}
+      toggled={!!float}
+      onClick={() =>
+        editor.chain().focus().setImageAlignment({ float: !float }).run()
       }
     />
   );
@@ -116,11 +130,6 @@ export function ImageProperties(props: ToolProps) {
   const { editor } = props;
   const [isOpen, setIsOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
-
-  // TODO: defer until user opens the popup
-  const image = findSelectedNode(editor, "image");
-  const { float, align, width, height } = (image?.attrs ||
-    {}) as ImageAlignmentOptions & ImageSizeOptions;
 
   return (
     <>
@@ -133,7 +142,7 @@ export function ImageProperties(props: ToolProps) {
 
       <ResponsivePresenter
         isOpen={isOpen}
-        desktop="menu"
+        desktop="popup"
         mobile="sheet"
         onClose={() => setIsOpen(false)}
         blocking
@@ -148,10 +157,6 @@ export function ImageProperties(props: ToolProps) {
       >
         <ImagePropertiesPopup
           editor={editor}
-          height={height}
-          width={width}
-          align={align}
-          float={float}
           onClose={() => setIsOpen(false)}
         />
       </ResponsivePresenter>

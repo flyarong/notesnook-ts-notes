@@ -58,7 +58,7 @@ export function ColorTool(props: ColorToolProps) {
       location: isBottom ? "top" : "below",
       yOffset: 10
     };
-  }, [isBottom]);
+  }, [isBottom, isOpen]);
 
   useEffect(() => {
     config.set(`custom_${cacheKey}`, colors);
@@ -89,6 +89,7 @@ export function ColorTool(props: ColorToolProps) {
       >
         <ColorPicker
           color={activeColor}
+          editor={props.editor}
           colors={colors}
           onDelete={(color) => {
             if (DEFAULT_COLORS.includes(color)) return;
@@ -105,10 +106,18 @@ export function ColorTool(props: ColorToolProps) {
           }}
           cacheKey={`custom_${cacheKey}`}
           onChange={(color) => {
-            onColorChange(color);
-            config.set(cacheKey, color);
+            const currentColor = config.get(cacheKey);
+            if (currentColor && currentColor === color) {
+              onColorChange();
+              config.set(cacheKey, null);
+            } else {
+              onColorChange(color);
+              config.set(cacheKey, color);
+            }
           }}
-          onClose={() => setIsOpen(false)}
+          onClose={() => {
+            setIsOpen(false);
+          }}
           title={title}
         />
       </PopupWrapper>
@@ -126,8 +135,8 @@ export function Highlight(props: ToolProps) {
       title={"Background color"}
       onColorChange={(color) =>
         color
-          ? editor.current?.chain().focus().setHighlight(color).run()
-          : editor.current?.chain().focus().unsetHighlight().run()
+          ? editor.chain().focus().setHighlight(color).run()
+          : editor.chain().focus().unsetHighlight().run()
       }
     />
   );
@@ -143,8 +152,8 @@ export function TextColor(props: ToolProps) {
       title="Text color"
       onColorChange={(color) =>
         color
-          ? editor.current?.chain().focus().setColor(color).run()
-          : editor.current?.chain().focus().unsetColor().run()
+          ? editor.chain().focus().setColor(color).run()
+          : editor.chain().focus().unsetColor().run()
       }
     />
   );

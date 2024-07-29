@@ -34,7 +34,7 @@ export function Importer() {
   const notesCounter = useRef<HTMLSpanElement>(null);
   const importProgress = useRef<HTMLDivElement>(null);
 
-  const onDrop = useCallback((acceptedFiles) => {
+  const onDrop = useCallback((acceptedFiles: File[]) => {
     setFiles((files) => {
       const newFiles = [...acceptedFiles, ...files];
       return newFiles;
@@ -43,7 +43,9 @@ export function Importer() {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: [".zip"]
+    accept: {
+      "application/zip": [".zip"]
+    }
   });
 
   return (
@@ -75,7 +77,7 @@ export function Importer() {
         <>
           <CheckCircleOutline color="accent" sx={{ mt: 150 }} />
           <Text variant="body" my={2} sx={{ textAlign: "center" }}>
-            Import successful. {errors.length} errors occured.
+            Import completed. {errors.length} errors occured.
           </Text>
           <Button
             variant="secondary"
@@ -127,6 +129,8 @@ export function Importer() {
                 <Link
                   href="https://help.notesnook.com/importing-notes/import-notes-from-evernote"
                   target="_blank"
+                  rel="noopener noreferrer"
+                  sx={{ color: "accent" }}
                 >
                   import guide
                 </Link>{" "}
@@ -134,23 +138,25 @@ export function Importer() {
               </Text>
             </Flex>
             <Button
+              variant="accent"
               onClick={async () => {
                 setIsDone(false);
                 setIsImporting(true);
 
                 await db.syncer?.acquireLock(async () => {
                   try {
-                    for await (const {
-                      count,
-                      filesRead,
-                      totalFiles
-                    } of importFiles(files)) {
-                      if (notesCounter.current)
-                        notesCounter.current.innerText = `${count}`;
-                      if (importProgress.current)
-                        importProgress.current.style.width = `${
-                          (filesRead / totalFiles) * 100
-                        }%`;
+                    for await (const message of importFiles(files)) {
+                      switch (message.type) {
+                        case "error":
+                          setErrors((errors) => [...errors, message.error]);
+                          break;
+                        case "progress": {
+                          const { count } = message;
+                          if (notesCounter.current)
+                            notesCounter.current.innerText = `${count}`;
+                          break;
+                        }
+                      }
                     }
                   } catch (e) {
                     console.error(e);

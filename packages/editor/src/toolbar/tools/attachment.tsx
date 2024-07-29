@@ -27,18 +27,18 @@ import { Attachment } from "../../extensions/attachment";
 export function AttachmentSettings(props: ToolProps) {
   const { editor } = props;
   const isBottom = useToolbarLocation() === "bottom";
-  if (
-    (!editor.isActive("attachment") && !editor.isActive("image")) ||
-    !isBottom
-  )
-    return null;
+  if (!editor.isActive("attachment") || !isBottom) return null;
 
   return (
     <MoreTools
       {...props}
       autoCloseOnUnmount
       popupId="attachmentSettings"
-      tools={["downloadAttachment", "removeAttachment"]}
+      tools={
+        editor.isEditable
+          ? ["downloadAttachment"]
+          : ["downloadAttachment", "removeAttachment"]
+      }
     />
   );
 }
@@ -56,7 +56,7 @@ export function DownloadAttachment(props: ToolProps) {
           findSelectedNode(editor, "image");
 
         const attachment = (attachmentNode?.attrs || {}) as Attachment;
-        editor.current?.chain().focus().downloadAttachment(attachment).run();
+        editor.storage.downloadAttachment?.(attachment);
       }}
     />
   );
@@ -81,7 +81,7 @@ export function PreviewAttachment(props: ToolProps) {
           findSelectedNode(editor, "image");
 
         const attachment = (attachmentNode?.attrs || {}) as Attachment;
-        editor.current?.commands.previewAttachment(attachment);
+        editor.storage.previewAttachment?.(attachment);
       }}
     />
   );
@@ -93,7 +93,7 @@ export function RemoveAttachment(props: ToolProps) {
     <ToolButton
       {...props}
       toggled={false}
-      onClick={() => editor.current?.chain().focus().removeAttachment().run()}
+      onClick={() => editor.chain().focus().removeAttachment().run()}
     />
   );
 }

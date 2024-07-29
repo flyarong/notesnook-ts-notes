@@ -17,12 +17,13 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+import { ScopedThemeProvider, useThemeColors } from "@notesnook/theme";
 import {
   activateKeepAwake,
   deactivateKeepAwake
 } from "@sayem314/react-native-keep-awake";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Platform, StatusBar, View } from "react-native";
+import { Dimensions, Platform, StatusBar, View } from "react-native";
 import changeNavigationBarColor from "react-native-navigation-bar-color";
 import {
   addOrientationListener,
@@ -40,10 +41,12 @@ import Animated, {
 import { notesnook } from "../../e2e/test.ids";
 import { db } from "../common/database";
 import { SideMenu } from "../components/side-menu";
+import { useSideBarDraggingStore } from "../components/side-menu/dragging-store";
 import { FluidTabs } from "../components/tabs";
 import useGlobalSafeAreaInsets from "../hooks/use-global-safe-area-insets";
 import { useShortcutManager } from "../hooks/use-shortcut-manager";
 import { hideAllTooltips } from "../hooks/use-tooltip";
+import { useTabStore } from "../screens/editor/tiptap/use-tab-store";
 import {
   clearAppState,
   editorController,
@@ -57,14 +60,14 @@ import {
   eSubscribeEvent,
   eUnSubscribeEvent
 } from "../services/event-manager";
-import { useEditorStore } from "../stores/use-editor-store";
 import { useSettingStore } from "../stores/use-setting-store";
-import { ScopedThemeProvider, useThemeColors } from "@notesnook/theme";
 import {
-  eClearEditor,
   eCloseFullscreenEditor,
+  eOnEnterEditor,
+  eOnExitEditor,
   eOnLoadNote,
-  eOpenFullscreenEditor
+  eOpenFullscreenEditor,
+  eUnlockNote
 } from "../utils/events";
 import { editorRef, tabBarRef } from "../utils/global-refs";
 import { sleep } from "../utils/time";
@@ -99,12 +102,12 @@ const _TabsHolder = () => {
         clearAppState();
         if (!tabBarRef.current) {
           await sleep(3000);
-          eSendEvent(eOnLoadNote, { type: "new" });
+          eSendEvent(eOnLoadNote, { newNote: true });
           editorState().movedAway = false;
           tabBarRef.current?.goToPage(1, false);
           return;
         }
-        eSendEvent(eOnLoadNote, { type: "new" });
+        eSendEvent(eOnLoadNote, { newNote: true });
         editorState().movedAway = false;
         tabBarRef.current?.goToPage(1, false);
       }
@@ -162,9 +165,7 @@ const _TabsHolder = () => {
             _deviceMode === "smallTablet"
               ? dimensions.width -
                 valueLimiter(dimensions.width * 0.4, 300, 450)
-              : dimensions.width > 1100
-              ? dimensions.width * 0.55
-              : dimensions.width * 0.5,
+              : dimensions.width * 0.48,
           zIndex: null,
           paddingHorizontal: 0
         }
@@ -211,6 +212,11 @@ const _TabsHolder = () => {
     checkDeviceType(size);
   };
 
+  if (!deviceMode) {
+    const size = Dimensions.get("window");
+    checkDeviceType(size);
+  }
+
   function checkDeviceType(size) {
     setDimensions({
       width: size.width,
@@ -250,9 +256,7 @@ const _TabsHolder = () => {
           position: "relative",
           width:
             current === "tablet"
-              ? size.width > 1100
-                ? size.width * 0.55
-                : size.width * 0.5
+              ? size.width * 0.48
               : current === "smallTablet"
               ? size.width - valueLimiter(size.width * 0.4, 300, 450)
               : size.width,
@@ -264,6 +268,9 @@ const _TabsHolder = () => {
     if (!needsUpdate) {
       return;
     }
+
+    const state = getAppState();
+
     setTimeout(() => {
       switch (current) {
         case "tablet":
@@ -278,8 +285,10 @@ const _TabsHolder = () => {
           break;
         case "mobile":
           if (
-            !editorState().movedAway &&
-            useEditorStore.getState().currentEditingNote
+            (state &&
+              !state?.movedAway &&
+              useTabStore.getState().getCurrentNoteId()) ||
+            editorState().movedAway === false
           ) {
             tabBarRef.current?.goToIndex(2, false);
           } else {
@@ -292,7 +301,7 @@ const _TabsHolder = () => {
 
   const onScroll = (scrollOffset) => {
     hideAllTooltips();
-    if (scrollOffset > offsets[deviceMode].a - 10) {
+    if (scrollOffset > offsets[deviceMode].sidebar - 10) {
       animatedOpacity.value = 0;
       toggleView(false);
     } else {
@@ -329,46 +338,40 @@ const _TabsHolder = () => {
 
   const offsets = {
     mobile: {
-      a: dimensions.width * 0.75,
-      b: dimensions.width + dimensions.width * 0.75,
-      c: dimensions.width * 2 + dimensions.width * 0.75
+      sidebar: dimensions.width * 0.75,
+      list: dimensions.width + dimensions.width * 0.75,
+      editor: dimensions.width * 2 + dimensions.width * 0.75
     },
     smallTablet: {
-      a: fullscreen ? 0 : valueLimiter(dimensions.width * 0.3, 300, 350),
-      b: fullscreen
+      sidebar: fullscreen ? 0 : valueLimiter(dimensions.width * 0.3, 300, 350),
+      list: fullscreen
         ? 0
         : dimensions.width + valueLimiter(dimensions.width * 0.3, 300, 350),
-      c: fullscreen
+      editor: fullscreen
         ? 0
         : dimensions.width + valueLimiter(dimensions.width * 0.3, 300, 350)
     },
     tablet: {
-      a: 0,
-      b: 0,
-      c: 0
+      sidebar: 0,
+      list: 0,
+      editor: 0
     }
   };
   const widths = {
     mobile: {
-      a: dimensions.width * 0.75,
-      b: dimensions.width,
-      c: dimensions.width
+      sidebar: dimensions.width * 0.75,
+      list: dimensions.width,
+      editor: dimensions.width
     },
     smallTablet: {
-      a: valueLimiter(dimensions.width * 0.3, 300, 350),
-      b: valueLimiter(dimensions.width * 0.4, 300, 450),
-      c: dimensions.width - valueLimiter(dimensions.width * 0.4, 300, 450)
+      sidebar: valueLimiter(dimensions.width * 0.3, 300, 350),
+      list: valueLimiter(dimensions.width * 0.4, 300, 450),
+      editor: dimensions.width - valueLimiter(dimensions.width * 0.4, 300, 450)
     },
     tablet: {
-      a:
-        dimensions.width > 1100
-          ? dimensions.width * 0.15
-          : dimensions.width * 0.2,
-      b: dimensions.width * 0.3,
-      c:
-        dimensions.width > 1100
-          ? dimensions.width * 0.55
-          : dimensions.width * 0.5
+      sidebar: dimensions.width * 0.22,
+      list: dimensions.width * 0.3,
+      editor: dimensions.width * 0.48
     }
   };
 
@@ -384,7 +387,16 @@ const _TabsHolder = () => {
   }, []);
 
   useEffect(() => {
-    changeNavigationBarColor(colors.primary.background, isDark, true);
+    function updateSystemBars() {
+      changeNavigationBarColor(colors.primary.background, isDark, true);
+      StatusBar.setBackgroundColor("transparent");
+      StatusBar.setTranslucent(true);
+      StatusBar.setBarStyle(isDark ? "light-content" : "dark-content");
+    }
+    updateSystemBars();
+    setTimeout(() => {
+      updateSystemBars();
+    }, 1000);
   }, [colors.primary.background, isDark]);
 
   return (
@@ -406,11 +418,7 @@ const _TabsHolder = () => {
             : 0
       }}
     >
-      <StatusBar
-        barStyle={isDark ? "light-content" : "dark-content"}
-        translucent={true}
-        backgroundColor="transparent"
-      />
+      <StatusBar translucent={true} backgroundColor="transparent" />
 
       {!introCompleted ? (
         <NavigationStack />
@@ -424,13 +432,19 @@ const _TabsHolder = () => {
               enabled={deviceMode !== "tablet" && !fullscreen}
               onScroll={onScroll}
               onChangeTab={onChangeTab}
-              onDrawerStateChange={() => true}
+              onDrawerStateChange={(state) => {
+                if (!state) {
+                  useSideBarDraggingStore.setState({
+                    dragging: false
+                  });
+                }
+              }}
             >
               <View
                 key="1"
                 style={{
                   height: "100%",
-                  width: fullscreen ? 0 : widths[deviceMode]?.a
+                  width: fullscreen ? 0 : widths[deviceMode]?.sidebar
                 }}
               >
                 <ScopedThemeProvider value="navigationMenu">
@@ -442,13 +456,19 @@ const _TabsHolder = () => {
                 key="2"
                 style={{
                   height: "100%",
-                  width: fullscreen ? 0 : widths[deviceMode]?.b
+                  width: fullscreen ? 0 : widths[deviceMode]?.list
                 }}
               >
                 <ScopedThemeProvider value="list">
                   {deviceMode === "mobile" ? (
                     <Animated.View
                       onTouchEnd={() => {
+                        if (useSideBarDraggingStore.getState().dragging) {
+                          useSideBarDraggingStore.setState({
+                            dragging: false
+                          });
+                          return;
+                        }
                         tabBarRef.current?.closeDrawer();
                         animatedOpacity.value = withTiming(0);
                         animatedTranslateY.value = withTiming(-9999);
@@ -472,7 +492,11 @@ const _TabsHolder = () => {
               </View>
 
               <ScopedThemeProvider value="editor">
-                <EditorWrapper key="3" width={widths} dimensions={dimensions} />
+                <EditorWrapper
+                  key="3"
+                  widths={widths}
+                  dimensions={dimensions}
+                />
               </ScopedThemeProvider>
             </FluidTabs>
           ) : null}
@@ -483,25 +507,42 @@ const _TabsHolder = () => {
 };
 export const TabHolder = React.memo(_TabsHolder, () => true);
 
-const onChangeTab = async (obj) => {
-  if (obj.i === 2) {
+const onChangeTab = async (event) => {
+  if (event.i === 2) {
     editorState().movedAway = false;
     editorState().isFocused = true;
     activateKeepAwake();
-    if (!editorState().currentlyEditing) {
-      eSendEvent(eOnLoadNote, { type: "new" });
+    eSendEvent(eOnEnterEditor);
+
+    if (!useTabStore.getState().getCurrentNoteId()) {
+      eSendEvent(eOnLoadNote, {
+        newNote: true
+      });
+    } else {
+      if (
+        useTabStore.getState().getTab(useTabStore.getState().currentTab).locked
+      ) {
+        eSendEvent(eUnlockNote);
+      }
     }
   } else {
-    if (obj.from === 2) {
+    if (event.from === 2) {
       deactivateKeepAwake();
       editorState().movedAway = true;
       editorState().isFocused = false;
-      eSendEvent(eClearEditor, "removeHandler");
-      setTimeout(() => useEditorStore.getState().setSearchReplace(false), 1);
-      let id = useEditorStore.getState().currentEditingNote;
-      let note = db.notes.note(id);
-      if (note?.locked) {
-        eSendEvent(eClearEditor);
+      eSendEvent(eOnExitEditor);
+
+      // Lock all tabs with locked notes...
+      for (const tab of useTabStore.getState().tabs) {
+        const noteId = useTabStore.getState().getTab(tab.id)?.noteId;
+        if (!noteId) continue;
+        const note = await db.notes.note(noteId);
+        const locked = note && (await db.vaults.itemExists(note));
+        if (locked) {
+          useTabStore.getState().updateTab(tab.id, {
+            locked: true
+          });
+        }
       }
     }
   }

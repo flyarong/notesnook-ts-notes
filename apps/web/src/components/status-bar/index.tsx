@@ -25,7 +25,6 @@ import {
   Loading,
   Update,
   SyncError,
-  Checkmark,
   Alert,
   Issue,
   SyncOff,
@@ -33,23 +32,22 @@ import {
 } from "../icons";
 import { useStore as useUserStore } from "../../stores/user-store";
 import { useStore as useAppStore } from "../../stores/app-store";
-import TimeAgo from "../time-ago";
-import { hardNavigate, hashNavigate, navigate } from "../../navigation";
+import { hardNavigate, hashNavigate } from "../../navigation";
 import { useAutoUpdater, UpdateStatus } from "../../hooks/use-auto-updater";
-import {
-  showIssueDialog,
-  showUpdateAvailableNotice
-} from "../../common/dialog-controller";
 import useStatus, { statusToString } from "../../hooks/use-status";
 import { ScopedThemeProvider } from "../theme-provider";
 import { checkForUpdate, installUpdate } from "../../utils/updater";
-import { toTitleCase } from "@notesnook/common";
+import { getTimeAgo, toTitleCase } from "@notesnook/common";
+import { User } from "@notesnook/core";
+import { showUpdateAvailableNotice } from "../../dialogs/confirm";
+import { IssueDialog } from "../../dialogs/issue-dialog";
 
 function StatusBar() {
   const user = useUserStore((state) => state.user);
   const isLoggedIn = useUserStore((state) => state.isLoggedIn);
   const statuses = useStatus();
   const updateStatus = useAutoUpdater();
+  const isFocusMode = useAppStore((state) => state.isFocusMode);
 
   return (
     <ScopedThemeProvider
@@ -63,124 +61,122 @@ function StatusBar() {
       }}
       px={2}
     >
-      <Flex>
-        {isLoggedIn ? (
-          <>
+      {isFocusMode ? (
+        <Flex />
+      ) : (
+        <Flex sx={{ gap: "small" }}>
+          {isLoggedIn ? (
+            <>
+              {user?.isEmailConfirmed ? (
+                <Circle
+                  size={7}
+                  color={"var(--icon-success)"}
+                  sx={{ p: "small" }}
+                />
+              ) : (
+                <Button
+                  onClick={() => hashNavigate("/email/verify")}
+                  variant="statusitem"
+                  sx={{
+                    alignItems: "center",
+                    justifyContent: "center",
+                    display: "flex",
+                    height: "100%"
+                  }}
+                >
+                  <Circle size={7} color={"var(--icon-error)"} />
+                  <Text variant="subBody" ml={1} sx={{ color: "paragraph" }}>
+                    Email not confirmed
+                  </Text>
+                </Button>
+              )}
+
+              <SyncStatus />
+            </>
+          ) : isLoggedIn === false ? (
             <Button
-              onClick={() =>
-                user?.isEmailConfirmed
-                  ? navigate("/settings")
-                  : hashNavigate("/email/verify")
-              }
               variant="statusitem"
+              onClick={() => hardNavigate("/login")}
               sx={{
                 alignItems: "center",
                 justifyContent: "center",
                 display: "flex"
               }}
+              data-test-id="not-logged-in"
             >
-              <Circle
-                size={7}
-                color={
-                  user?.isEmailConfirmed
-                    ? "var(--icon-success)"
-                    : "var(--icon-error)"
-                }
-              />
-              <Text
-                className="selectable"
-                variant="subBody"
-                ml={1}
-                sx={{ color: "paragraph" }}
-              >
-                {user?.email}
-                {user?.isEmailConfirmed ? "" : " (not verified)"}
+              <Circle size={7} color="var(--icon-error)" />
+              <Text variant="subBody" ml={1} sx={{ color: "paragraph" }}>
+                Not logged in
               </Text>
             </Button>
-
-            <SyncStatus />
-          </>
-        ) : isLoggedIn === false ? (
+          ) : null}
           <Button
             variant="statusitem"
-            onClick={() => hardNavigate("/login")}
+            onClick={() => IssueDialog.show({})}
             sx={{
               alignItems: "center",
               justifyContent: "center",
               display: "flex"
             }}
-            data-test-id="not-logged-in"
+            title="Facing an issue? Click here to create a bug report."
           >
-            <Circle size={7} color="var(--icon-error)" />
+            <Issue size={12} />
             <Text variant="subBody" ml={1} sx={{ color: "paragraph" }}>
-              Not logged in
+              Report an issue
             </Text>
           </Button>
-        ) : null}
-        <Button
-          variant="statusitem"
-          onClick={() => showIssueDialog()}
-          sx={{
-            alignItems: "center",
-            justifyContent: "center",
-            display: "flex"
-          }}
-          title="Facing an issue? Click here to create a bug report."
-        >
-          <Issue size={12} />
-          <Text variant="subBody" ml={1} sx={{ color: "paragraph" }}>
-            Report an issue
-          </Text>
-        </Button>
-        {statuses?.map((status) => {
-          const { key, icon: Icon } = status;
-          return (
-            <Flex
-              key={key}
-              ml={1}
-              sx={{ alignItems: "center", justifyContent: "center" }}
+          {statuses?.map((status) => {
+            const { key, icon: Icon } = status;
+            return (
+              <Flex
+                key={key}
+                ml={1}
+                sx={{ alignItems: "center", justifyContent: "center" }}
+              >
+                {Icon ? <Icon size={12} /> : <Loading size={12} />}
+                <Text variant="subBody" ml={1} sx={{ color: "paragraph" }}>
+                  {statusToString(status)}
+                </Text>
+              </Flex>
+            );
+          })}
+
+          {updateStatus && updateStatus.type !== "updated" && (
+            <Button
+              variant="statusitem"
+              onClick={async () => {
+                if (updateStatus.type === "available") {
+                  await showUpdateAvailableNotice(updateStatus);
+                } else if (updateStatus.type === "completed") {
+                  installUpdate();
+                } else {
+                  checkForUpdate();
+                }
+              }}
+              sx={{
+                ml: 1,
+                alignItems: "center",
+                justifyContent: "center",
+                display: "flex"
+              }}
             >
-              {Icon ? <Icon size={12} /> : <Loading size={12} />}
+              <Update
+                rotate={
+                  updateStatus.type !== "completed" &&
+                  updateStatus.type !== "available"
+                }
+                color={
+                  updateStatus.type === "available" ? "accent" : "paragraph"
+                }
+                size={12}
+              />
               <Text variant="subBody" ml={1} sx={{ color: "paragraph" }}>
-                {statusToString(status)}
+                {statusToInfoText(updateStatus)}
               </Text>
-            </Flex>
-          );
-        })}
-
-        {updateStatus && updateStatus.type !== "updated" && (
-          <Button
-            variant="statusitem"
-            onClick={async () => {
-              if (updateStatus.type === "available") {
-                await showUpdateAvailableNotice(updateStatus);
-              } else if (updateStatus.type === "completed") {
-                installUpdate();
-              } else {
-                checkForUpdate();
-              }
-            }}
-            sx={{
-              ml: 1,
-              alignItems: "center",
-              justifyContent: "center",
-              display: "flex"
-            }}
-          >
-            <Update
-              rotate={
-                updateStatus.type !== "completed" &&
-                updateStatus.type !== "available"
-              }
-              color={updateStatus.type === "available" ? "accent" : "paragraph"}
-              size={12}
-            />
-            <Text variant="subBody" ml={1} sx={{ color: "paragraph" }}>
-              {statusToInfoText(updateStatus)}
-            </Text>
-          </Button>
-        )}
-      </Flex>
+            </Button>
+          )}
+        </Flex>
+      )}
       <EditorFooter />
     </ScopedThemeProvider>
   );
@@ -202,9 +198,7 @@ function statusToInfoText(status: UpdateStatus) {
 }
 
 function SyncStatus() {
-  const syncStatus = useAppStore(
-    (state) => state.syncStatus
-  ) /* TODO: remove this type coercing */ as unknown as SyncState;
+  const syncStatus = useAppStore((state) => state.syncStatus);
   const lastSynced = useAppStore((state) => state.lastSynced);
   const isSyncEnabled = useAppStore((state) => state.isSyncEnabled);
   const sync = useAppStore((state) => state.sync);
@@ -226,46 +220,24 @@ function SyncStatus() {
         color: "paragraph",
         height: "100%"
       }}
-      title={status.tooltip}
+      title={
+        (status.text
+          ? status.text({ lastSynced, type: syncStatus.type })
+          : status.tooltip) +
+        (syncStatus.progress ? ` (${syncStatus.progress})` : "")
+      }
       data-test-id={`sync-status-${status.key}`}
     >
-      {!syncStatus.progress && (
-        <status.icon
-          size={12}
-          rotate={status.loading}
-          color={status.iconColor}
-        />
-      )}
-      <Text
-        variant="body"
-        sx={{ ml: status.text ? "3px" : 0, fontSize: "subBody" }}
-      >
-        {status.text ? (
-          <>
-            {typeof status.text === "string" ? (
-              status.text
-            ) : (
-              <status.text lastSynced={lastSynced} type={syncStatus.type} />
-            )}{" "}
-          </>
-        ) : null}
-      </Text>
-      {syncStatus.progress && (
-        <Text variant={"subBody"} ml={1}>
-          {" "}
-          ({syncStatus.progress})
-        </Text>
-      )}
+      <status.icon
+        size={12}
+        rotate={status.loading}
+        rotateDirection="counterclockwise"
+        color={status.iconColor}
+      />
     </Button>
   );
 }
 
-type SyncState = {
-  key: SyncStatus;
-  progress: number;
-  type: SyncType;
-};
-type SyncType = "download" | "upload" | "sync";
 type SyncStatus =
   | "synced"
   | "syncing"
@@ -282,14 +254,11 @@ type SyncStatusFilter = {
     user: User | undefined,
     lastSynced: number
   ) => boolean;
-  text:
-    | string
-    | ((props: {
-        type?: "download" | "upload" | "sync";
-        user?: User;
-        lastSynced: number;
-      }) => JSX.Element);
-  tooltip?: string;
+  text?: (props: {
+    type?: "download" | "upload" | "sync";
+    lastSynced: number;
+  }) => string;
+  tooltip: string;
   iconColor?: string;
   loading?: boolean;
 };
@@ -297,14 +266,13 @@ type SyncStatusFilter = {
 const syncStatusFilters: SyncStatusFilter[] = [
   {
     key: "synced",
-    isActive: (syncStatus) => syncStatus === "synced",
+    isActive: (syncStatus) =>
+      syncStatus === "synced" || syncStatus === "completed",
     icon: Sync,
     text: ({ lastSynced }) =>
-      lastSynced ? (
-        <TimeAgo live={true} locale="en_short" datetime={lastSynced} />
-      ) : (
-        <>click to sync</>
-      ),
+      lastSynced
+        ? `Synced ${getTimeAgo(lastSynced, "en_short", { minInterval: 1000 })}`
+        : "click to sync",
     tooltip: "All changes are synced."
   },
   {
@@ -312,22 +280,15 @@ const syncStatusFilters: SyncStatusFilter[] = [
     isActive: (syncStatus) => syncStatus === "syncing",
     icon: Sync,
     loading: true,
-    text: ({ type }) => <>{toTitleCase(type || "sync")}ing</>,
+    text: ({ type }) => `${toTitleCase(type || "sync")}ing`,
     tooltip: "Syncing your notes..."
-  },
-  {
-    key: "completed",
-    isActive: (syncStatus) => syncStatus === "completed",
-    icon: Checkmark,
-    iconColor: "var(--icon-success)",
-    text: ""
   },
   {
     key: "conflicts",
     isActive: (syncStatus) => syncStatus === "conflicts",
     icon: Alert,
     iconColor: "var(--icon-error)",
-    text: "Merge conflicts",
+    text: () => "Merge conflicts",
     tooltip: "Please resolve all merge conflicts and run the sync again."
   },
   {
@@ -335,7 +296,7 @@ const syncStatusFilters: SyncStatusFilter[] = [
     isActive: (_syncStatus, user) => !user?.isEmailConfirmed,
     icon: Alert,
     iconColor: "var(--icon-error)",
-    text: "Sync disabled",
+    text: () => "Sync disabled",
     tooltip: "Please confirm your email to start syncing."
   },
   {
@@ -343,19 +304,17 @@ const syncStatusFilters: SyncStatusFilter[] = [
     isActive: (syncStatus) => syncStatus === "failed",
     icon: SyncError,
     iconColor: "var(--icon-error)",
-    text: "Sync failed",
+    text: () => "Sync failed",
     tooltip: "Sync failed to completed. Please try again."
   },
   {
     key: "offline",
     isActive: (syncStatus) => syncStatus === "offline",
     icon: SyncOff,
-    text: ({ lastSynced }) => (
-      <>
-        <TimeAgo live={true} locale="en_short" datetime={lastSynced} />{" "}
-        (offline)
-      </>
-    ),
+    text: ({ lastSynced }) =>
+      `Synced ${getTimeAgo(lastSynced, "en_short", {
+        minInterval: 1000
+      })} (offline)`,
     tooltip: "You are offline."
   },
   {
@@ -363,7 +322,7 @@ const syncStatusFilters: SyncStatusFilter[] = [
     iconColor: "var(--icon-disabled)",
     isActive: (syncStatus) => syncStatus === "disabled",
     icon: SyncOff,
-    text: "Sync disabled",
+    text: () => "Sync disabled",
     tooltip: "Sync is disabled."
   }
 ];

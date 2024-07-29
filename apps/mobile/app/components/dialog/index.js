@@ -36,11 +36,15 @@ import DialogButtons from "./dialog-buttons";
 import DialogHeader from "./dialog-header";
 import { useCallback } from "react";
 import { Button } from "../ui/button";
+import { getContainerBorder } from "../../utils/colors";
 
 export const Dialog = ({ context = "global" }) => {
   const { colors } = useThemeColors();
   const [visible, setVisible] = useState(false);
-  const [inputValue, setInputValue] = useState(null);
+  const [checked, setChecked] = useState(false);
+  const values = useRef({
+    inputValue: undefined
+  });
   const inputRef = useRef();
   const [dialogInfo, setDialogInfo] = useState({
     title: "",
@@ -62,21 +66,12 @@ export const Dialog = ({ context = "global" }) => {
     }
   });
 
-  useEffect(() => {
-    eSubscribeEvent(eOpenSimpleDialog, show);
-    eSubscribeEvent(eCloseSimpleDialog, hide);
-
-    return () => {
-      eUnSubscribeEvent(eOpenSimpleDialog, show);
-      eUnSubscribeEvent(eCloseSimpleDialog, hide);
-    };
-  }, [show]);
-
   const onPressPositive = async () => {
     if (dialogInfo.positivePress) {
       inputRef.current?.blur();
       let result = await dialogInfo.positivePress(
-        inputValue || dialogInfo.defaultValue
+        values.current.inputValue || dialogInfo.defaultValue,
+        checked
       );
       if (result === false) {
         return;
@@ -91,14 +86,26 @@ export const Dialog = ({ context = "global" }) => {
       if (!data.context) data.context = "global";
       if (data.context !== context) return;
       setDialogInfo(data);
+      setChecked(false);
+      values.current.inputValue = data.defaultValue;
       setVisible(true);
-      setInputValue(data.defaultValue);
     },
     [context]
   );
 
+  useEffect(() => {
+    eSubscribeEvent(eOpenSimpleDialog, show);
+    eSubscribeEvent(eCloseSimpleDialog, hide);
+
+    return () => {
+      eUnSubscribeEvent(eOpenSimpleDialog, show);
+      eUnSubscribeEvent(eCloseSimpleDialog, hide);
+    };
+  }, [show]);
+
   const hide = () => {
-    setInputValue(null);
+    setChecked(false);
+    values.current.inputValue = undefined;
     setVisible(false);
   };
 
@@ -106,7 +113,6 @@ export const Dialog = ({ context = "global" }) => {
     if (dialogInfo.onClose) {
       await dialogInfo.onClose();
     }
-
     hide();
   };
 
@@ -116,7 +122,8 @@ export const Dialog = ({ context = "global" }) => {
     maxHeight: 450,
     borderRadius: 5,
     backgroundColor: colors.primary.background,
-    paddingTop: 12
+    paddingTop: 12,
+    ...getContainerBorder(colors.primary.border, 0.5)
   };
 
   return visible ? (
@@ -159,7 +166,7 @@ export const Dialog = ({ context = "global" }) => {
               fwdRef={inputRef}
               autoCapitalize="none"
               onChangeText={(value) => {
-                setInputValue(value);
+                values.current.inputValue = value;
               }}
               testID="input-value"
               secureTextEntry={dialogInfo.secureTextEntry}
@@ -167,6 +174,7 @@ export const Dialog = ({ context = "global" }) => {
               onSubmit={onPressPositive}
               returnKeyLabel="Done"
               returnKeyType="done"
+              keyboardType={dialogInfo.keyboardType || "default"}
               placeholder={dialogInfo.inputPlaceholder}
             />
           </View>
@@ -176,10 +184,10 @@ export const Dialog = ({ context = "global" }) => {
           <>
             <Button
               onPress={() => {
-                setInputValue(!inputValue);
+                setChecked(!checked);
               }}
               icon={
-                inputValue
+                checked
                   ? "check-circle-outline"
                   : "checkbox-blank-circle-outline"
               }
@@ -187,9 +195,10 @@ export const Dialog = ({ context = "global" }) => {
                 justifyContent: "flex-start"
               }}
               height={35}
+              iconSize={20}
               width="100%"
               title={dialogInfo.check.info}
-              type={inputValue ? dialogInfo.check.type : "gray"}
+              type={checked ? dialogInfo.check.type || "selected" : "plain"}
             />
           </>
         ) : null}

@@ -25,47 +25,19 @@ import { ClipboardDOMParser } from "./clipboard-dom-parser";
 import { ClipboardDOMSerializer } from "./clipboard-dom-serializer";
 import { clipboardTextParser } from "./clipboard-text-parser";
 import { clipboardTextSerializer } from "./clipboard-text-serializer";
-
-declare module "@tiptap/core" {
-  interface Commands<ReturnType> {
-    clipboard: {
-      copyToClipboard: (text: string) => ReturnType;
-    };
-  }
-}
-
-export type ClipboardOptions = {
-  copyToClipboard: (text: string) => void;
-};
+import { EditorView } from "prosemirror-view";
 
 export const Clipboard = Extension.create({
   name: "clipboard",
-
-  addOptions() {
-    return {
-      copyToClipboard: () => {}
-    };
-  },
-
-  addCommands() {
-    return {
-      copyToClipboard: (text: string) => (props) => {
-        this.options.copyToClipboard(text);
-        return true;
-      }
-    };
-  },
 
   addProseMirrorPlugins() {
     return [
       new Plugin({
         key: new PluginKey("clipboard"),
         props: {
-          clipboardParser: ClipboardDOMParser.fromSchema(
-            this.editor.view.state.schema
-          ),
+          clipboardParser: ClipboardDOMParser.fromSchema(this.editor.schema),
           clipboardSerializer: ClipboardDOMSerializer.fromSchema(
-            this.editor.view.state.schema
+            this.editor.schema
           ),
           transformCopied,
           clipboardTextParser,
@@ -76,17 +48,19 @@ export const Clipboard = Extension.create({
   }
 });
 
-export function transformCopied(slice: Slice): any {
+export function transformCopied(slice: Slice, view: EditorView): any {
   // when copying a single list item, we shouldn't retain the
   // list formatting but copy it as a paragraph.
   const maybeList = slice.content.firstChild;
   if (
+    slice.content.childCount === 1 &&
     maybeList &&
     LIST_NODE_TYPES.includes(maybeList.type.name) &&
     maybeList.childCount === 1 &&
     maybeList.firstChild
   ) {
-    return transformCopied(new Slice(maybeList.firstChild.content, 0, 0));
+    return transformCopied(Slice.maxOpen(maybeList.firstChild.content), view);
   }
+
   return slice;
 }

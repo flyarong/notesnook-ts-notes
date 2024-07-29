@@ -37,13 +37,13 @@ const gitHash = (() => {
     return process.env.GIT_HASH || "gitless";
   }
 })();
-const appVersion = version.replaceAll(".", "");
+const appVersion = version.replaceAll(".", "").replace("-beta", "");
+const isBeta = version.endsWith("-beta");
 const isTesting =
   process.env.TEST === "true" || process.env.NODE_ENV === "development";
 const isDesktop = process.env.PLATFORM === "desktop";
 const isThemeBuilder = process.env.THEME_BUILDER === "true";
 const isAnalyzing = process.env.ANALYZING === "true";
-process.env.NN_BUILD_TIMESTAMP = isTesting ? "0" : `${Date.now()}`;
 
 export default defineConfig({
   envPrefix: "NN_",
@@ -55,11 +55,21 @@ export default defineConfig({
     minify: "esbuild",
     cssMinify: true,
     emptyOutDir: true,
+    sourcemap: !isDesktop,
     rollupOptions: {
       output: {
         plugins: [emitEditorStyles()],
         assetFileNames: "assets/[name]-[hash:12][extname]",
-        chunkFileNames: "assets/[name]-[hash:12].js"
+        chunkFileNames: "assets/[name]-[hash:12].js",
+        manualChunks: (id: string) => {
+          if (
+            (id.includes("/editor/languages/") ||
+              id.includes("/html/languages/")) &&
+            path.basename(id) !== "index.js"
+          )
+            return `code-lang-${path.basename(id, "js")}`;
+          return null;
+        }
       }
     }
   },
@@ -71,7 +81,7 @@ export default defineConfig({
     IS_DESKTOP_APP: isDesktop,
     PLATFORM: `"${process.env.PLATFORM}"`,
     IS_TESTING: process.env.TEST === "true",
-    IS_BETA: process.env.BETA === "true",
+    IS_BETA: isBeta,
     IS_THEME_BUILDER: isThemeBuilder
   },
   logLevel: process.env.NODE_ENV === "production" ? "warn" : "info",
@@ -87,10 +97,14 @@ export default defineConfig({
 
     alias: [
       {
-        find: /desktop-bridge/gm,
+        find: /\/desktop-bridge$/gm,
         replacement: isDesktop
-          ? "desktop-bridge/index.desktop"
-          : "desktop-bridge/index"
+          ? "/desktop-bridge/index.desktop"
+          : "/desktop-bridge/index"
+      },
+      {
+        find: /\/sqlite$/gm,
+        replacement: isDesktop ? "/sqlite/index.desktop" : "/sqlite/index"
       }
     ]
   },
@@ -101,6 +115,8 @@ export default defineConfig({
     format: "es",
     rollupOptions: {
       output: {
+        assetFileNames: "assets/[name]-[hash:12][extname]",
+        chunkFileNames: "assets/[name]-[hash:12].js",
         inlineDynamicImports: true
       }
     }
@@ -129,13 +145,30 @@ export default defineConfig({
             manifest: WEB_MANIFEST,
             injectRegister: null,
             srcDir: "",
-            filename: "service-worker.ts"
+            filename: "service-worker.ts",
+            mode: "production",
+            workbox: { mode: "production" },
+            injectManifest: {
+              globPatterns: ["**/*.{js,css,html,wasm}", "**/open-sans-*.woff2"],
+              globIgnores: [
+                "**/node_modules/**/*",
+                "**/code-lang-*.js",
+                "pdf.worker.min.js"
+              ]
+            }
           })
         ]),
     react({
       plugins: isTesting
         ? undefined
-        : [["swc-plugin-react-remove-properties", {}]]
+        : [
+            [
+              "@swc/plugin-react-remove-properties",
+              {
+                properties: ["^data-test-id$"]
+              }
+            ]
+          ]
     }),
     envCompatible({
       prefix: "NN_",
@@ -143,7 +176,8 @@ export default defineConfig({
     }),
     svgrPlugin({
       svgrOptions: {
-        icon: true
+        icon: true,
+        namedExport: "ReactComponent"
         // ...svgr options (https://react-svgr.com/docs/options/)
       }
     })

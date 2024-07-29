@@ -25,6 +25,7 @@ import Config from "../utils/config";
 
 import { useEffect } from "react";
 import { ArrowRight, Checkmark, Icon, Warn } from "../components/icons";
+import { BaseDialogProps, DialogManager } from "../common/dialog-manager";
 
 type CallToAction = {
   title: string;
@@ -89,6 +90,8 @@ const features: Record<FeatureKeys, Feature> = {
             )
           }
         ]
+      : IS_DESKTOP_APP
+      ? []
       : [],
     cta: {
       title: "Got it",
@@ -111,12 +114,13 @@ const features: Record<FeatureKeys, Feature> = {
   }
 };
 
-type FeatureDialogProps = {
+type FeatureDialogProps = BaseDialogProps<boolean> & {
   featureName: FeatureKeys;
-  onClose: (result: boolean) => void;
 };
 
-function FeatureDialog(props: FeatureDialogProps) {
+export const FeatureDialog = DialogManager.register(function FeatureDialog(
+  props: FeatureDialogProps
+) {
   const { featureName, onClose } = props;
   const feature = features[featureName];
 
@@ -176,8 +180,7 @@ function FeatureDialog(props: FeatureDialogProps) {
       </Flex>
     </Dialog>
   );
-}
-export default FeatureDialog;
+});
 
 type CodeProps = { text: string; href?: string };
 export function Code(props: CodeProps) {

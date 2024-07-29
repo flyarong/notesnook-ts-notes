@@ -21,14 +21,15 @@ import { SettingsGroup } from "./types";
 import {
   editorConfig,
   onEditorConfigChange,
-  setEditorConfig
-} from "../../components/editor/context";
+  useEditorManager
+} from "../../components/editor/manager";
 import { useStore as useSettingStore } from "../../stores/setting-store";
 import { getFonts } from "@notesnook/editor";
 import { useSpellChecker } from "../../hooks/use-spell-checker";
 import { SpellCheckerLanguages } from "./components/spell-checker-languages";
 
 import { CustomizeToolbar } from "./components/customize-toolbar";
+import { DictionaryWords } from "./components/dictionary-words";
 
 export const EditorSettings: SettingsGroup[] = [
   {
@@ -73,7 +74,9 @@ symbols (e.g. 202305261253)`,
             })),
             selectedOption: () => editorConfig().fontFamily,
             onSelectionChanged: (value) => {
-              setEditorConfig({ fontFamily: value });
+              useEditorManager
+                .getState()
+                .setEditorConfig({ fontFamily: value });
             }
           }
         ]
@@ -92,7 +95,8 @@ symbols (e.g. 202305261253)`,
             max: 120,
             min: 8,
             defaultValue: () => editorConfig().fontSize,
-            onChange: (value) => setEditorConfig({ fontSize: value })
+            onChange: (value) =>
+              useEditorManager.getState().setEditorConfig({ fontSize: value })
           }
         ]
       },
@@ -100,7 +104,7 @@ symbols (e.g. 202305261253)`,
         key: "double-spacing",
         title: "Double spaced paragraphs",
         description:
-          "Use double spacing between paragraphs and when you press Enter in the editor.",
+          "Use double spacing between paragraphs when you press Enter in the editor.",
         onStateChange: (listener) =>
           useSettingStore.subscribe((c) => c.doubleSpacedParagraphs, listener),
         components: [
@@ -109,6 +113,27 @@ symbols (e.g. 202305261253)`,
             isToggled: () => useSettingStore.getState().doubleSpacedParagraphs,
             toggle: () =>
               useSettingStore.getState().toggleDoubleSpacedParagraphs()
+          }
+        ]
+      },
+      {
+        key: "markdown-shortcuts",
+        title: "Markdown shortcuts",
+        description: `Markdown shortcuts are triggered whenever you input a specific character combination.
+        
+For example:
+
+1. Typing '/date' adds the current Date
+2. Wrapping something in '**' turns it into bold text
+3. Typing '1.' automatically creates a numbered list.
+4. etc.`,
+        onStateChange: (listener) =>
+          useSettingStore.subscribe((c) => c.markdownShortcuts, listener),
+        components: [
+          {
+            type: "toggle",
+            isToggled: () => useSettingStore.getState().markdownShortcuts,
+            toggle: () => useSettingStore.getState().toggleMarkdownShortcuts()
           }
         ]
       }
@@ -147,6 +172,16 @@ symbols (e.g. 202305261253)`,
           {
             type: "custom",
             component: SpellCheckerLanguages
+          }
+        ]
+      },
+      {
+        key: "custom-dictionay-words",
+        title: "Custom dictionary words",
+        components: [
+          {
+            type: "custom",
+            component: DictionaryWords
           }
         ]
       }

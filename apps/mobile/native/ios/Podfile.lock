@@ -319,15 +319,13 @@ PODS:
     - React-Core
   - react-native-html-to-pdf-lite (0.9.1):
     - React
-  - react-native-image-picker (4.1.2):
-    - React-Core
   - react-native-image-resizer (3.0.5):
     - React-Core
   - react-native-in-app-review (4.3.3):
     - React-Core
   - react-native-keep-awake (1.2.0):
     - React-Core
-  - react-native-mmkv-storage (0.10.0-alpha.9):
+  - react-native-mmkv-storage (0.10.0-alpha.12):
     - MMKV (~> 1.3.1)
     - React
     - React-Core
@@ -339,17 +337,24 @@ PODS:
     - React
   - react-native-pdf (6.6.2):
     - React-Core
-  - react-native-safe-area-context (4.6.3):
-    - RCT-Folly
-    - RCTRequired
-    - RCTTypeSafety
+  - react-native-quick-sqlite (8.0.6):
+    - React
+    - React-callinvoker
     - React-Core
-    - ReactCommon/turbomodule/core
-  - react-native-share-extension (2.5.6):
+  - react-native-safe-area-context (4.9.0):
+    - React-Core
+  - react-native-screenguard (1.0.0):
+    - React-Core
+    - SDWebImage (~> 5.11.1)
+  - react-native-share-extension (3.0.0):
     - React
   - react-native-sodium (1.5.4):
     - React
-  - react-native-webview (11.26.1):
+  - react-native-theme-switch-animation (0.6.0):
+    - RCT-Folly (= 2021.07.22.00)
+    - React-Core
+  - react-native-webview (13.10.0):
+    - RCT-Folly (= 2021.07.22.00)
     - React-Core
   - React-NativeModulesApple (0.72.0):
     - React-callinvoker
@@ -456,6 +461,8 @@ PODS:
     - React-jsi (= 0.72.0)
     - React-logger (= 0.72.0)
     - React-perflogger (= 0.72.0)
+  - RNBackgroundFetch (4.2.2):
+    - React-Core
   - RNBootSplash (4.1.4):
     - React-Core
   - RNCCheckbox (0.5.15):
@@ -477,14 +484,23 @@ PODS:
     - React-Core
   - RNGestureHandler (2.12.0):
     - React-Core
-  - RNIap (7.5.6):
+  - RNIap (12.11.0):
     - React-Core
+  - RNImageCropPicker (0.40.2):
+    - React-Core
+    - React-RCTImage
+    - RNImageCropPicker/QBImagePickerController (= 0.40.2)
+    - TOCropViewController
+  - RNImageCropPicker/QBImagePickerController (0.40.2):
+    - React-Core
+    - React-RCTImage
+    - TOCropViewController
   - RNKeychain (4.0.5):
     - React
-  - RNNotifee (7.4.4):
+  - RNNotifee (7.4.7):
     - React-Core
-    - RNNotifee/NotifeeCore (= 7.4.4)
-  - RNNotifee/NotifeeCore (7.4.4):
+    - RNNotifee/NotifeeCore (= 7.4.7)
+  - RNNotifee/NotifeeCore (7.4.7):
     - React-Core
   - RNPrivacySnapshot (1.0.0):
     - React-Core
@@ -535,6 +551,9 @@ PODS:
   - RNZipArchive/Core (6.0.9):
     - React-Core
     - SSZipArchive (~> 2.2)
+  - SDWebImage (5.11.1):
+    - SDWebImage/Core (= 5.11.1)
+  - SDWebImage/Core (5.11.1)
   - SexyTooltip (1.2.5):
     - pop (~> 1.0)
   - SocketRocket (0.6.0)
@@ -542,6 +561,7 @@ PODS:
   - SwiftyRSA (1.7.0):
     - SwiftyRSA/ObjC (= 1.7.0)
   - SwiftyRSA/ObjC (1.7.0)
+  - TOCropViewController (2.6.1)
   - toolbar-android (0.2.1):
     - React
   - Yoga (1.14.0)
@@ -582,7 +602,6 @@ DEPENDENCIES:
   - react-native-get-random-values (from `../../node_modules/react-native-get-random-values`)
   - react-native-gzip (from `../../node_modules/react-native-gzip`)
   - react-native-html-to-pdf-lite (from `../../node_modules/react-native-html-to-pdf-lite`)
-  - react-native-image-picker (from `../../node_modules/react-native-image-picker`)
   - "react-native-image-resizer (from `../../node_modules/@bam.tech/react-native-image-resizer`)"
   - react-native-in-app-review (from `../../node_modules/react-native-in-app-review`)
   - "react-native-keep-awake (from `../../node_modules/@sayem314/react-native-keep-awake`)"
@@ -591,9 +610,12 @@ DEPENDENCIES:
   - react-native-notification-sounds (from `../../node_modules/react-native-notification-sounds`)
   - react-native-orientation (from `../../node_modules/react-native-orientation`)
   - react-native-pdf (from `../../node_modules/react-native-pdf`)
+  - react-native-quick-sqlite (from `../../node_modules/react-native-quick-sqlite`)
   - react-native-safe-area-context (from `../../node_modules/react-native-safe-area-context`)
+  - react-native-screenguard (from `../../node_modules/react-native-screenguard`)
   - "react-native-share-extension (from `../../node_modules/@ammarahmed/react-native-share-extension`)"
   - "react-native-sodium (from `../../node_modules/@ammarahmed/react-native-sodium`)"
+  - react-native-theme-switch-animation (from `../../node_modules/react-native-theme-switch-animation`)
   - react-native-webview (from `../../node_modules/react-native-webview`)
   - React-NativeModulesApple (from `../../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
   - React-perflogger (from `../../node_modules/react-native/ReactCommon/reactperflogger`)
@@ -612,6 +634,7 @@ DEPENDENCIES:
   - React-runtimescheduler (from `../../node_modules/react-native/ReactCommon/react/renderer/runtimescheduler`)
   - React-utils (from `../../node_modules/react-native/ReactCommon/react/utils`)
   - ReactCommon/turbomodule/core (from `../../node_modules/react-native/ReactCommon`)
+  - "RNBackgroundFetch (from `../../node_modules/@ammarahmed/react-native-background-fetch`)"
   - RNBootSplash (from `../../node_modules/react-native-bootsplash`)
   - "RNCCheckbox (from `../../node_modules/@react-native-community/checkbox`)"
   - "RNCClipboard (from `../../node_modules/@react-native-clipboard/clipboard`)"
@@ -623,6 +646,7 @@ DEPENDENCIES:
   - "RNFlashList (from `../../node_modules/@shopify/flash-list`)"
   - RNGestureHandler (from `../../node_modules/react-native-gesture-handler`)
   - RNIap (from `../../node_modules/react-native-iap`)
+  - RNImageCropPicker (from `../../node_modules/react-native-image-crop-picker`)
   - RNKeychain (from `../../node_modules/react-native-keychain`)
   - "RNNotifee (from `../../node_modules/@ammarahmed/notifee-react-native`)"
   - RNPrivacySnapshot (from `../../node_modules/react-native-privacy-snapshot`)
@@ -647,9 +671,11 @@ SPEC REPOS:
     - MMKV
     - MMKVCore
     - pop
+    - SDWebImage
     - SocketRocket
     - SSZipArchive
     - SwiftyRSA
+    - TOCropViewController
 
 EXTERNAL SOURCES:
   boost:
@@ -716,8 +742,6 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/react-native-gzip"
   react-native-html-to-pdf-lite:
     :path: "../../node_modules/react-native-html-to-pdf-lite"
-  react-native-image-picker:
-    :path: "../../node_modules/react-native-image-picker"
   react-native-image-resizer:
     :path: "../../node_modules/@bam.tech/react-native-image-resizer"
   react-native-in-app-review:
@@ -734,12 +758,18 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/react-native-orientation"
   react-native-pdf:
     :path: "../../node_modules/react-native-pdf"
+  react-native-quick-sqlite:
+    :path: "../../node_modules/react-native-quick-sqlite"
   react-native-safe-area-context:
     :path: "../../node_modules/react-native-safe-area-context"
+  react-native-screenguard:
+    :path: "../../node_modules/react-native-screenguard"
   react-native-share-extension:
     :path: "../../node_modules/@ammarahmed/react-native-share-extension"
   react-native-sodium:
     :path: "../../node_modules/@ammarahmed/react-native-sodium"
+  react-native-theme-switch-animation:
+    :path: "../../node_modules/react-native-theme-switch-animation"
   react-native-webview:
     :path: "../../node_modules/react-native-webview"
   React-NativeModulesApple:
@@ -776,6 +806,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/react-native/ReactCommon/react/utils"
   ReactCommon:
     :path: "../../node_modules/react-native/ReactCommon"
+  RNBackgroundFetch:
+    :path: "../../node_modules/@ammarahmed/react-native-background-fetch"
   RNBootSplash:
     :path: "../../node_modules/react-native-bootsplash"
   RNCCheckbox:
@@ -798,6 +830,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/react-native-gesture-handler"
   RNIap:
     :path: "../../node_modules/react-native-iap"
+  RNImageCropPicker:
+    :path: "../../node_modules/react-native-image-crop-picker"
   RNKeychain:
     :path: "../../node_modules/react-native-keychain"
   RNNotifee:
@@ -871,19 +905,21 @@ SPEC CHECKSUMS:
   react-native-get-random-values: dee677497c6a740b71e5612e8dbd83e7539ed5bb
   react-native-gzip: c5e87ee9e359f02350e3a2ee52eb35eddc398868
   react-native-html-to-pdf-lite: 21bfb169bf4cbcd7bec9f736975ee1b3f5292d4a
-  react-native-image-picker: 9c8a2687b69300ad9e95cec5d38f35ab9d32467d
   react-native-image-resizer: 00ceb0e05586c7aadf061eea676957a6c2ec60fa
   react-native-in-app-review: db8bb167a5f238e7ceca5c242d6b36ce8c4404a4
   react-native-keep-awake: caee3ff89eaa21dfe29010f0d143566874a04441
-  react-native-mmkv-storage: d4ad55ab411b7f0d4e6269d801b31821ef48970b
+  react-native-mmkv-storage: e4f2880c6c72c4c0bda2333b2c32e76f10b56622
   react-native-netinfo: ccbe1085dffd16592791d550189772e13bf479e2
   react-native-notification-sounds: da78c828fe1bcbb92d8b505d5261890ed315ff39
   react-native-orientation: f1caf84d65f1a4fd4511a18f2b924e634ad7a628
   react-native-pdf: 33c622cbdf776a649929e8b9d1ce2d313347c4fa
-  react-native-safe-area-context: 36cc67648134e89465663b8172336a19eeda493d
-  react-native-share-extension: df66a2ee48a62277d79898375e2142bde0782063
+  react-native-quick-sqlite: e0e23b749382a85e4b57146f753de737a6c3a9e1
+  react-native-safe-area-context: b97eb6f9e3b7f437806c2ce5983f479f8eb5de4b
+  react-native-screenguard: 8b36a3df84c76cd2b82c477f71c26fa1c8cc14a0
+  react-native-share-extension: faed334b1ddf165f1e576fcabd3dc1c9e748bfa9
   react-native-sodium: 955bb0dc3ea05f8ea06d5e96cb89d1be7b5d7681
-  react-native-webview: 9f111dfbcfc826084d6c507f569e5e03342ee1c1
+  react-native-theme-switch-animation: 220f883f7be290e79f2ab022093ed1a7a5929e6d
+  react-native-webview: 90153193e679163ec257011fa457d02765120210
   React-NativeModulesApple: 1d81d927ef1a67a3545a01e14c2e98500bf9b199
   React-perflogger: 684a11499a0589cc42135d6d5cc04d0e4e0e261a
   React-RCTActionSheet: 00b0a4c382a13b834124fa3f541a7d8d1d56efb9
@@ -901,6 +937,7 @@ SPEC CHECKSUMS:
   React-runtimescheduler: 4a36521cc1ec1bc3997ae2462b6779dadaae376b
   React-utils: c12d2e75c8bbc727939ddc4319ed95493395ed5a
   ReactCommon: b9547f82aed45eccc1aa59034dc6c72809e37000
+  RNBackgroundFetch: 35c7183f6eeff69396d42c4b206e1ae2a21e9327
   RNBootSplash: de2c568373a9c79a66e9918b8929eb6c9a35246f
   RNCCheckbox: 43bcc6493611468af0e19f19f029dab3da8561c4
   RNCClipboard: 3f0451a8100393908bea5c5c5b16f96d45f30bfc
@@ -911,9 +948,10 @@ SPEC CHECKSUMS:
   RNFileViewer: ce7ca3ac370e18554d35d6355cffd7c30437c592
   RNFlashList: 399bf6a0db68f594ad2c86aaff3ea39564f39f8a
   RNGestureHandler: dec4645026e7401a0899f2846d864403478ff6a5
-  RNIap: d248609d1b8937e63bd904e865c318e9b1457eff
+  RNIap: fc9af04ee706894a80c9d8f979bae930b0dee191
+  RNImageCropPicker: d9616a0cb9b72e8551ff94a7a5021fbd29050aa5
   RNKeychain: 840f8e6f13be0576202aefcdffd26a4f54bfe7b5
-  RNNotifee: 2ae3c18196e6f307fa62ae5c8e5305dea03ff147
+  RNNotifee: 1448fd16c2a6f3e8abbc219801bf5be2435183e5
   RNPrivacySnapshot: 8eaf571478a353f2e5184f5c803164f22428b023
   RNReanimated: d347d84b665039d88dbcb1feddb2aa59156c9bd2
   RNScreens: d3675ab2878704de70c9dae57fa5d024802404cc
@@ -922,13 +960,15 @@ SPEC CHECKSUMS:
   RNSVG: d7d7bc8229af3842c9cfc3a723c815a52cdd1105
   RNTooltips: 5424d4bf0b3d441104127943b1115cc7f0616b1f
   RNZipArchive: 68a0c6db4b1c103f846f1559622050df254a3ade
+  SDWebImage: a7f831e1a65eb5e285e3fb046a23fcfbf08e696d
   SexyTooltip: 5c9b4dec52bfb317938cb0488efd9da3717bb6fd
   SocketRocket: fccef3f9c5cedea1353a9ef6ada904fde10d6608
   SSZipArchive: fe6a26b2a54d5a0890f2567b5cc6de5caa600aef
   SwiftyRSA: 8c6dd1ea7db1b8dc4fb517a202f88bb1354bc2c6
+  TOCropViewController: edfd4f25713d56905ad1e0b9f5be3fbe0f59c863
   toolbar-android: 2a73856e98b750d7e71ce4644d3f41cc98211719
   Yoga: 1d6727ed193122f6adaf435c3de1a768326ff83b
 
-PODFILE CHECKSUM: b0cadd188aa428b98d1eaa0b84b3b6208e714119
+PODFILE CHECKSUM: 2b8b28a341b202bf3ca5f231b75bb05893486ed8
 
-COCOAPODS: 1.12.1
+COCOAPODS: 1.15.2

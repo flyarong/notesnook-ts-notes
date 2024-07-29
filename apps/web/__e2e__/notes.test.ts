@@ -92,12 +92,15 @@ test("add a note to notebook", async ({ page }) => {
 
   await note?.contextMenu.addToNotebook({
     title: "Notebook 1",
-    topics: ["Hello", "World", "Did", "what"]
+    subNotebooks: [
+      { title: "Hello" },
+      { title: "World", subNotebooks: [{ title: "Did" }, { title: "what" }] }
+    ]
   });
 
-  expect(
-    await app.toasts.waitForToast("1 note added to Hello and 3 others.")
-  ).toBe(true);
+  expect(await app.toasts.waitForToast("1 note added to 5 notebooks.")).toBe(
+    true
+  );
 });
 
 const actors = ["contextMenu", "properties"] as const;
@@ -162,6 +165,8 @@ for (const actor of actors) {
     await app.goto();
     const notes = await app.goToNotes();
     const note = await notes.createNote(NOTE);
+    await note?.contextMenu.newColor({ title: "red", color: "#ff0000" });
+    await note?.contextMenu.uncolor("red");
 
     await note?.[actor].color("red");
 
@@ -249,16 +254,20 @@ test("unlock a note for editing", async ({ page }) => {
   await note?.contextMenu.lock(PASSWORD);
   await note?.openLockedNote(PASSWORD);
 
-  const content = "Edits 1 2 3 ";
+  const content = "Edits 1 2 3";
   await notes.editor.setContent(content);
   await page.waitForTimeout(150);
 
-  const newContent = `${content}${NOTE.content}`;
+  await page.reload();
+  await notes.waitForList();
+
+  const newContent = `${NOTE.content}${content}`;
   const editedNote = await notes.findNote({
     title: NOTE.title,
     content: newContent
   });
-  await editedNote?.openLockedNote(PASSWORD);
+  if (!editedNote) throw new Error("Could not find note.");
+  await editedNote.openLockedNote(PASSWORD);
   await notes.editor.waitForLoading();
   expect(await notes.editor.getContent("text")).toContain(newContent);
 });
@@ -275,9 +284,10 @@ test("change title of a locked note", async ({ page }) => {
   await notes.editor.setTitle(title);
   await page.waitForTimeout(150);
 
-  const editedNote = await notes.findNote({ title, content: NOTE.content });
+  await page.reload();
+  await notes.waitForList();
+  const editedNote = await notes.findNote({ title });
   await editedNote?.openLockedNote(PASSWORD);
-  await notes.editor.waitForLoading();
   expect(await note?.getTitle()).toContain(title);
   expect(await notes.editor.getTitle()).toContain(title);
 });
@@ -307,7 +317,7 @@ test(`sort notes`, async ({ page }, info) => {
           });
           if (!sortResult) return;
 
-          expect(await notes.isEmpty()).toBeFalsy();
+          await expect(notes.items).toHaveCount(titles.length);
         });
       }
     }

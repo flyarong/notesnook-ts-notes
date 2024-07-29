@@ -41,6 +41,10 @@ const tools: Record<ToolId, ToolDefinition> = {
     icon: "strikethrough",
     title: "Strikethrough"
   },
+  addInternalLink: {
+    icon: "noteLink",
+    title: "Add bi-directional note link"
+  },
   addLink: {
     icon: "link",
     title: "Link"
@@ -103,6 +107,10 @@ const tools: Record<ToolId, ToolDefinition> = {
   numberedList: {
     icon: "numberedList",
     title: "Numbered list"
+  },
+  checkList: {
+    icon: "checklist",
+    title: "Checklist"
   },
   fontFamily: {
     icon: "fontFamily",
@@ -262,6 +270,11 @@ const tools: Record<ToolId, ToolDefinition> = {
     title: "Align right",
     conditional: true
   },
+  imageFloat: {
+    icon: "imageFloat",
+    title: "Float image",
+    conditional: true
+  },
   imageProperties: {
     icon: "more",
     title: "Image properties",
@@ -375,6 +388,16 @@ export const MOBILE_STATIC_TOOLBAR_GROUPS: ToolbarDefinition = [
   [...STATIC_TOOLBAR_GROUPS[0], "previewAttachment"]
 ];
 
+export const READONLY_MOBILE_STATIC_TOOLBAR_GROUPS: ToolbarDefinition = [
+  [
+    "imageSettings",
+    "attachmentSettings",
+    "linkSettings",
+    "webclipSettings",
+    "previewAttachment"
+  ]
+];
+
 const defaultPresets: Record<"default" | "minimal", ToolbarDefinition> = {
   default: [
     [
@@ -393,8 +416,8 @@ const defaultPresets: Record<"default" | "minimal", ToolbarDefinition> = {
     ],
     ["fontSize"],
     ["headings", "fontFamily"],
-    ["numberedList", "bulletList"],
-    ["addLink"],
+    ["checkList", "numberedList", "bulletList"],
+    ["addLink", "addInternalLink"],
     ["alignment", "textDirection"],
     ["clearformatting"]
   ],

@@ -24,7 +24,7 @@ import useTimer from "../../hooks/use-timer";
 import {
   eSendEvent,
   presentSheet,
-  ToastEvent
+  ToastManager
 } from "../../services/event-manager";
 import { useThemeColors } from "@notesnook/theme";
 import { eCloseSheet } from "../../utils/events";
@@ -32,11 +32,12 @@ import { SIZE } from "../../utils/size";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
 import Input from "../ui/input";
-import { PressableButton } from "../ui/pressable";
+import { Pressable } from "../ui/pressable";
 import Seperator from "../ui/seperator";
 import Heading from "../ui/typography/heading";
 import Paragraph from "../ui/typography/paragraph";
 import { useCallback } from "react";
+import { ScrollView } from "react-native-actions-sheet";
 
 const TwoFactorVerification = ({ onMfaLogin, mfaInfo }) => {
   const { colors } = useThemeColors();
@@ -138,12 +139,15 @@ const TwoFactorVerification = ({ onMfaLogin, mfaInfo }) => {
       setSending(false);
     } catch (e) {
       setSending(false);
-      ToastEvent.error(e, "Error sending 2FA Code", "local");
+      ToastManager.error(e, "Error sending 2FA Code", "local");
     }
   }, [currentMethod.method, mfaInfo.token, seconds, sending, start]);
 
   return (
-    <View>
+    <ScrollView
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
+    >
       <View
         style={{
           alignItems: "center",
@@ -151,7 +155,7 @@ const TwoFactorVerification = ({ onMfaLogin, mfaInfo }) => {
         }}
       >
         <IconButton
-          customStyle={{
+          style={{
             width: 70,
             height: 70
           }}
@@ -183,7 +187,7 @@ const TwoFactorVerification = ({ onMfaLogin, mfaInfo }) => {
         {currentMethod.method === "sms" || currentMethod.method === "email" ? (
           <Button
             onPress={onSendCode}
-            type={seconds ? "gray" : "transparent"}
+            type={seconds ? "plain" : "transparent"}
             title={
               sending
                 ? ""
@@ -214,6 +218,7 @@ const TwoFactorVerification = ({ onMfaLogin, mfaInfo }) => {
                 code.current = value;
                 //onNext();
               }}
+              onSubmitEditing={onNext}
               caretHidden
               inputStyle={{
                 fontSize: SIZE.lg,
@@ -225,6 +230,7 @@ const TwoFactorVerification = ({ onMfaLogin, mfaInfo }) => {
               keyboardType={
                 currentMethod.method === "recoveryCode" ? "default" : "numeric"
               }
+              enablesReturnKeyAutomatically
               containerStyle={{
                 height: 60,
                 borderWidth: 0,
@@ -247,7 +253,7 @@ const TwoFactorVerification = ({ onMfaLogin, mfaInfo }) => {
 
             <Button
               title={secondaryMethodsText[currentMethod.method]}
-              type="gray"
+              type="plain"
               onPress={onRequestSecondaryMethod}
               height={30}
             />
@@ -255,7 +261,7 @@ const TwoFactorVerification = ({ onMfaLogin, mfaInfo }) => {
         ) : (
           <>
             {getMethods().map((item) => (
-              <PressableButton
+              <Pressable
                 key={item.title}
                 onPress={() => {
                   setCurrentMethod({
@@ -263,7 +269,7 @@ const TwoFactorVerification = ({ onMfaLogin, mfaInfo }) => {
                     isPrimary: false
                   });
                 }}
-                customStyle={{
+                style={{
                   paddingHorizontal: 12,
                   paddingVertical: 12,
                   marginTop: 0,
@@ -275,8 +281,8 @@ const TwoFactorVerification = ({ onMfaLogin, mfaInfo }) => {
                 }}
               >
                 <IconButton
-                  type="grayAccent"
-                  customStyle={{
+                  type="secondaryAccented"
+                  style={{
                     width: 40,
                     height: 40,
                     marginRight: 10
@@ -292,12 +298,12 @@ const TwoFactorVerification = ({ onMfaLogin, mfaInfo }) => {
                 >
                   <Paragraph size={SIZE.md}>{item.title}</Paragraph>
                 </View>
-              </PressableButton>
+              </Pressable>
             ))}
           </>
         )}
       </View>
-    </View>
+    </ScrollView>
   );
 };
 

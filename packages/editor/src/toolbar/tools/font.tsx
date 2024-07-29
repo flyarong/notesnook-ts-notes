@@ -26,6 +26,7 @@ import { Counter } from "../components/counter";
 import { useRefValue } from "../../hooks/use-ref-value";
 import { useToolbarStore } from "../stores/toolbar-store";
 import { getFontById, getFontIds, getFonts } from "../../utils/font";
+import { CodeBlock } from "../../extensions/code-block";
 
 export function FontSize(props: ToolProps) {
   const { editor } = props;
@@ -45,27 +46,16 @@ export function FontSize(props: ToolProps) {
 
   return (
     <Counter
-      title="font size"
+      title="Font size"
+      disabled={editor.isActive(CodeBlock.name)}
       onDecrease={() =>
-        editor.current
-          ?.chain()
-          .focus()
-          .setFontSize(`${decreaseFontSize()}px`)
-          .run()
+        editor.chain().focus().setFontSize(`${decreaseFontSize()}px`).run()
       }
       onIncrease={() => {
-        editor.current
-          ?.chain()
-          .focus()
-          .setFontSize(`${increaseFontSize()}px`)
-          .run();
+        editor.chain().focus().setFontSize(`${increaseFontSize()}px`).run();
       }}
       onReset={() =>
-        editor.current
-          ?.chain()
-          .focus()
-          .setFontSize(`${defaultFontSize}px`)
-          .run()
+        editor.chain().focus().setFontSize(`${defaultFontSize}px`).run()
       }
       value={fontSize || `${defaultFontSize}px`}
     />
@@ -93,6 +83,7 @@ export function FontFamily(props: ToolProps) {
       selectedItem={getFontById(currentFontFamily)?.title || defaultFontFamily}
       items={items}
       menuWidth={130}
+      disabled={editor.isActive(CodeBlock.name)}
     />
   );
 }
@@ -105,8 +96,7 @@ function toMenuItems(editor: Editor, currentFontFamily: string): MenuItem[] {
       type: "button",
       title: font.title,
       isChecked: font.id === currentFontFamily,
-      onClick: () =>
-        editor.current?.chain().focus().setFontFamily(font.id).run(),
+      onClick: () => editor.chain().focus().setFontFamily(font.id).run(),
       styles: {
         title: {
           fontFamily: font.font

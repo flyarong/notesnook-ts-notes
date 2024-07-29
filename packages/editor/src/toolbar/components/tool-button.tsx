@@ -31,7 +31,7 @@ export type ToolButtonProps = ButtonProps & {
   icon: IconNames;
   iconColor?: SchemeColors;
   iconSize?: keyof Theme["iconSizes"] | number;
-  toggled: boolean;
+  toggled?: boolean;
   buttonRef?: React.RefObject<HTMLButtonElement>;
   variant?: ToolButtonVariant;
 };
@@ -74,7 +74,11 @@ export const ToolButton = React.memo(
               },
           ...sx
         }}
-        onMouseDown={(e) => e.preventDefault()}
+        onMouseDown={(e) => {
+          if (globalThis.keyboardShown) {
+            e.preventDefault();
+          }
+        }}
         {...buttonProps}
       >
         <Icon
@@ -89,6 +93,7 @@ export const ToolButton = React.memo(
     return (
       prev.toggled === next.toggled &&
       prev.icon === next.icon &&
+      prev.disabled === next.disabled &&
       JSON.stringify(prev.sx) === JSON.stringify(next.sx)
     );
   }
