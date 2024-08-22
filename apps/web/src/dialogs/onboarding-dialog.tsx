@@ -37,7 +37,6 @@ import DarkUI from "../assets/dark1.png";
 import GooglePlay from "../assets/play.png";
 import AppleStore from "../assets/apple.png";
 import { useStore as useThemeStore } from "../stores/theme-store";
-import { Checkbox, Label } from "@theme-ui/components";
 import { Features } from "../components/announcements/body";
 import { TaskManager } from "../common/task-manager";
 import { db } from "../common/db";
@@ -64,8 +63,7 @@ const newUserSteps: Step[] = [
     title: "Safe & encrypted notes",
     subtitle: "Write with freedom. Never compromise on privacy again.",
     buttonText: "Get started",
-    image: <Note style={{ flexShrink: 0, width: 120, height: 120 }} />,
-    component: TrackingConsent
+    image: <Note style={{ flexShrink: 0, width: 120, height: 120 }} />
   },
   {
     title: "Choose your style",
@@ -421,28 +419,6 @@ function ThemeSelector() {
   );
 }
 
-function TrackingConsent() {
-  const [enableTelemetry, setEnableTelemetry] = usePersistentState(
-    "telemetry",
-    false
-  );
-  return (
-    <Label variant="text.subBody" my={4} sx={{ width: "80%" }}>
-      <Checkbox
-        checked={enableTelemetry}
-        onChange={(e) => {
-          setEnableTelemetry(e.target.checked);
-        }}
-        sx={{ width: 14 }}
-      />
-      <Text>
-        Help improve Notesnook by sending completely anonymized product
-        analytics.
-      </Text>
-    </Label>
-  );
-}
-
 function CrossPlatform() {
   return (
     <Flex my={4} sx={{ alignItems: "center" }}>
@@ -513,12 +489,8 @@ function TrialOffer({ onClose }: { onClose: () => void }) {
               const result = await TaskManager.startTask({
                 type: "status",
                 id: "trialActivation",
-                action: (report) => {
-                  report({
-                    text: "Activating trial"
-                  });
-                  return db.user.activateTrial();
-                }
+                title: "Activating trial",
+                action: () => db.user.activateTrial()
               });
               if (result) onClose();
             } catch (e) {

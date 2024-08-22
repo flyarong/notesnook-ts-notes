@@ -17,15 +17,6 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-import Config from "./config";
-
-export function isTelemetryEnabled() {
-  // telemetry is always disabled in DEBUG/TEST mode
-  if (import.meta.env.DEV || IS_TESTING) return false;
-
-  return Config.get("telemetry", false);
-}
-
-export function setTelemetry(state: boolean) {
-  Config.set("telemetry", state);
+export function chunkPrefix(filename: string) {
+  return `${filename}-chunk-`;
 }

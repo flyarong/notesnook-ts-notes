@@ -17,15 +17,25 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-import { useEffect, useState } from "react";
-import { isTelemetryEnabled, setTelemetry } from "../utils/telemetry";
+import { ServersConfiguration } from "./components/servers-configuration";
+import { SettingsGroup } from "./types";
 
-export function useTelemetry() {
-  const [enabled, setEnabled] = useState(isTelemetryEnabled());
-
-  useEffect(() => {
-    setTelemetry(enabled);
-  }, [enabled]);
-
-  return [enabled, setEnabled] as const;
-}
+export const ServersSettings: SettingsGroup[] = [
+  {
+    header: "Servers configuration",
+    key: "servers",
+    section: "servers",
+    settings: [
+      {
+        key: "config",
+        title: "",
+        components: [
+          {
+            type: "custom",
+            component: ServersConfiguration
+          }
+        ]
+      }
+    ]
+  }
+];
